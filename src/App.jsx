@@ -84,7 +84,7 @@ export default function App() {
       <style>{CSS}</style>
       <div className="app">
         {view === "list" && <ListView songs={songs} onOpen={open} onAdd={addSong} />}
-        {view === "reader" && cur && <Reader song={cur} onBack={() => setView("list")} onEdit={() => edit(cur.id)} />}
+        {view === "reader" && cur && <Reader song={cur} onBack={() => setView("list")} onEdit={() => edit(cur.id)} onFoundSpotify={(id) => saveSong({ spotifyId: id })} />}
         {view === "edit" && cur && (
           <Editor
             song={cur} provider={provider} setProvider={setProvider}
@@ -136,11 +136,33 @@ function ListView({ songs, onOpen, onAdd }) {
   );
 }
 
-function Reader({ song, onBack, onEdit }) {
+function Reader({ song, onBack, onEdit, onFoundSpotify }) {
   const pl = (song.pl || "").split("\n");
   const en = (song.en || "").split("\n");
   const n = Math.max(pl.length, en.length);
   const has = song.pl && song.pl.trim();
+  const [spotify, setSpotify] = useState(song.spotifyId || null);
+
+  // Resolve the song on Spotify once (via /api/spotify), then remember the id.
+  useEffect(() => {
+    let active = true;
+    setSpotify(song.spotifyId || null);
+    if (song.spotifyId || song.example) return; // already found, or the demo text
+    (async () => {
+      try {
+        const r = await fetch(`/api/spotify?title=${encodeURIComponent(song.title)}&artist=${encodeURIComponent(ARTIST)}`);
+        if (!r.ok || !active) return; // not set up yet / error — leave the player hidden
+        const j = await r.json();
+        if (!active) return;
+        const id = j && j.id ? j.id : "none"; // "none" = looked up, no match — don't retry
+        setSpotify(id);
+        onFoundSpotify(id);
+      } catch { /* leave the player hidden */ }
+    })();
+    return () => { active = false; };
+  }, [song.id]);
+
+  const showPlayer = spotify && spotify !== "none";
   return (
     <>
       <div className="rbar">
@@ -148,6 +170,16 @@ function Reader({ song, onBack, onEdit }) {
         <div className="ttl"><h2>{song.title}</h2><p>{song.album}</p></div>
         <button className="icbtn accent" onClick={onEdit}>Edit</button>
       </div>
+      {showPlayer && (
+        <div className="spotwrap">
+          <iframe
+            className="spotify" title="Spotify player"
+            src={`https://open.spotify.com/embed/track/${spotify}`}
+            width="100%" height="152" loading="lazy"
+            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+          />
+        </div>
+      )}
       <div className="sheet">
         <div className="sheethead"><span>Polski</span><span>English</span></div>
         {!has ? (
@@ -272,6 +304,8 @@ const CSS = `
 .icbtn{ background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:10px; height:38px; min-width:38px; padding:0 12px; cursor:pointer; font-size:14px; font-family:var(--ui); line-height:1; }
 .icbtn.accent{ background:var(--rose); border-color:var(--rose); color:#20140f; font-weight:600; }
 .rbar .ttl{ flex:1; min-width:0; } .rbar .ttl h2{ margin:0; font-family:var(--display); font-weight:900; font-size:19px; color:#f3ede1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .rbar .ttl p{ margin:2px 0 0; font-size:12px; color:var(--mist-dim); }
+.spotwrap{ padding:14px 16px 0; }
+.spotify{ display:block; width:100%; border:0; border-radius:12px; }
 .sheet{ background:var(--paper); margin:16px; border-radius:16px; padding:8px 4px 20px; box-shadow:0 18px 50px rgba(0,0,0,.35); }
 .sheethead{ display:grid; grid-template-columns:1fr 1fr; padding:12px 8px 10px; }
 .sheethead span{ font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:#a99a82; font-weight:600; padding:0 14px; } .sheethead span+span{ border-left:1px solid var(--rule); }
