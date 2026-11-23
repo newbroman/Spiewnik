@@ -34,7 +34,7 @@ const EN = {
   searchPh: "Artist and/or song title", search: "Search",
   noMatches: "No matches. Check the spelling, or add it by hand below.",
   addManual: "Can’t find it? Add manually →",
-  artist: "Artist", title: "Title", addPaste: "Add & paste lyrics", backSearch: "Back to search",
+  artist: "Artist", album: "Album", optional: "(optional)", title: "Title", addPaste: "Add & paste lyrics", backSearch: "Back to search",
   adding: "Adding…",
   // reader
   practice: "Practice", edit: "Edit", autoScroll: "Auto-scroll",

@@ -53,7 +53,7 @@ const OWNER_ID = "4068f297-5cf7-4ab1-ba1d-93d7de2ad264";
 
 // Map a DB row to the shape the UI uses (camelCase for media ids).
 const fromRow = (r) => ({
-  id: r.id, language: r.language || "Polish", artist: r.artist || "", title: r.title || "",
+  id: r.id, language: r.language || "Polish", artist: r.artist || "", album: r.album || "", title: r.title || "",
   pl: r.pl || "", en: r.en || "", youtubeId: r.youtube_id, spotifyId: r.spotify_id, position: r.position ?? 0,
 });
 
@@ -125,10 +125,10 @@ export default function App() {
   const cur = songs.find((s) => s.id === curId);
 
   // --- CRUD against Supabase (RLS scopes every row to this user) -------------
-  async function createSong({ language, artist, title }) {
+  async function createSong({ language, artist, title, album }) {
     const position = songs.reduce((m, s) => Math.max(m, s.position || 0), 0) + 1;
     const { data, error } = await supabase
-      .from("songs").insert({ language, artist, title, pl: "", en: "", position })
+      .from("songs").insert({ language, artist, title, album: album || "", pl: "", en: "", position })
       .select().single();
     if (error) { flash("Couldn't add: " + error.message); return; }
     const s = fromRow(data);
@@ -142,6 +142,7 @@ export default function App() {
     const row = {};
     if ("title" in patch) row.title = patch.title;
     if ("artist" in patch) row.artist = patch.artist;
+    if ("album" in patch) row.album = patch.album;
     if ("language" in patch) row.language = patch.language;
     if ("pl" in patch) row.pl = patch.pl;
     if ("en" in patch) row.en = patch.en;
@@ -329,13 +330,24 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, o
     const A = (s.artist && s.artist.trim()) || t("unknownArtist");
     const key = A.toLowerCase();
     let ar = lg.artists.find((x) => x.key === key);
-    if (!ar) { ar = { key, artist: A, items: [] }; lg.artists.push(ar); }
+    if (!ar) { ar = { key, artist: A, albums: [] }; lg.artists.push(ar); }
     // Prefer a label that starts with a capital (e.g. "Zalia" over "zalia").
     else if (A.charAt(0) === A.charAt(0).toUpperCase() && ar.artist.charAt(0) !== ar.artist.charAt(0).toUpperCase()) ar.artist = A;
-    ar.items.push(s);
+    // Group by album within the artist. Blank album = loose singles (no header).
+    const AL = (s.album && s.album.trim()) || "";
+    const alKey = AL.toLowerCase();
+    let al = ar.albums.find((x) => x.key === alKey);
+    if (!al) { al = { key: alKey, album: AL, items: [] }; ar.albums.push(al); }
+    else if (AL.charAt(0) === AL.charAt(0).toUpperCase() && al.album.charAt(0) !== al.album.charAt(0).toUpperCase()) al.album = AL;
+    al.items.push(s);
   });
   byLang.sort((a, b) => a.language.localeCompare(b.language));
-  byLang.forEach((lg) => lg.artists.sort((a, b) => a.artist.localeCompare(b.artist)));
+  byLang.forEach((lg) => {
+    lg.artists.sort((a, b) => a.artist.localeCompare(b.artist));
+    // Named albums first (A–Z), loose singles (blank album) last.
+    lg.artists.forEach((ar) => ar.albums.sort((a, b) =>
+      (a.key ? 0 : 1) - (b.key ? 0 : 1) || a.album.localeCompare(b.album)));
+  });
   const done = songs.filter((s) => s.pl && s.pl.trim()).length;
 
   return (
@@ -367,21 +379,26 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, o
               {lg.artists.map((ar) => (
                 <div key={ar.artist}>
                   <div className="artsect">{ar.artist}</div>
-                  <div className="songs">
-                    {ar.items.map((s, i) => {
-                      const filled = !!(s.pl && s.pl.trim());
-                      return (
-                        <button key={s.id} className="song" onClick={() => onOpen(s.id)}>
-                          <span className="num">{i + 1}</span>
-                          <span className="meta">
-                            <h3>{s.title || t("untitled")}</h3>
-                            <p>{filled ? t("lines", { n: s.pl.split("\n").filter((l) => l.trim()).length }) : t("noLyricsYet")}</p>
-                          </span>
-                          <span className={"dot " + (filled ? "full" : "empty")} />
-                        </button>
-                      );
-                    })}
-                  </div>
+                  {ar.albums.map((al) => (
+                    <div key={al.key || "_loose"}>
+                      {al.album && <div className="albumsect">{al.album}</div>}
+                      <div className="songs">
+                        {al.items.map((s, i) => {
+                          const filled = !!(s.pl && s.pl.trim());
+                          return (
+                            <button key={s.id} className="song" onClick={() => onOpen(s.id)}>
+                              <span className="num">{i + 1}</span>
+                              <span className="meta">
+                                <h3>{s.title || t("untitled")}</h3>
+                                <p>{filled ? t("lines", { n: s.pl.split("\n").filter((l) => l.trim()).length }) : t("noLyricsYet")}</p>
+                              </span>
+                              <span className={"dot " + (filled ? "full" : "empty")} />
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               ))}
             </div>
@@ -407,6 +424,7 @@ function AddSong({ onBack, onCreate }) {
   const [creating, setCreating] = useState(false);
   const [manual, setManual] = useState(false);
   const [artist, setArtist] = useState("");
+  const [album, setAlbum] = useState("");
   const [title, setTitle] = useState("");
 
   async function doSearch() {
@@ -421,12 +439,12 @@ function AddSong({ onBack, onCreate }) {
   async function pick(res) {
     if (creating) return;
     setCreating(true);
-    await onCreate({ language, artist: res.artist, title: res.title });
+    await onCreate({ language, artist: res.artist, album: res.album || "", title: res.title });
   }
   async function createManual() {
     if (!title.trim() || creating) return;
     setCreating(true);
-    await onCreate({ language, artist: artist.trim(), title: title.trim() });
+    await onCreate({ language, artist: artist.trim(), album: album.trim(), title: title.trim() });
   }
 
   return (
@@ -457,7 +475,7 @@ function AddSong({ onBack, onCreate }) {
                 <button key={i} className="sresult" onClick={() => pick(r)} disabled={creating}>
                   <span className="meta">
                     <h3>{r.title}</h3>
-                    <p>{[r.artist, r.year].filter(Boolean).join(" · ")}</p>
+                    <p>{[r.artist, r.album, r.year].filter(Boolean).join(" · ")}</p>
                   </span>
                   <span className="pickarrow">＋</span>
                 </button>
@@ -474,6 +492,8 @@ function AddSong({ onBack, onCreate }) {
             <div className="addform">
               <div><label>{t("artist")}</label>
                 <input value={artist} placeholder="e.g. Daria ze Śląska" onChange={(e) => setArtist(e.target.value)} /></div>
+              <div><label>{t("album")} <span className="opt">{t("optional")}</span></label>
+                <input value={album} placeholder={t("album")} onChange={(e) => setAlbum(e.target.value)} /></div>
               <div><label>{t("title")}</label>
                 <input value={title} autoFocus placeholder={t("title")} onChange={(e) => setTitle(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && createManual()} /></div>
@@ -760,6 +780,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
   const t = useT();
   const [title, setTitle] = useState(song.title);
   const [artist, setArtist] = useState(song.artist || "");
+  const [album, setAlbum] = useState(song.album || "");
   const [language, setLanguage] = useState(song.language || "Polish");
   const [pl, setPl] = useState(song.pl || "");
   const [en, setEn] = useState(song.en || "");
@@ -839,6 +860,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
         <div className="meta3">
           <div><label>{t("title")}</label><input value={title} onChange={(e) => setTitle(e.target.value)} /></div>
           <div><label>{t("artist")}</label><input value={artist} onChange={(e) => setArtist(e.target.value)} /></div>
+          <div><label>{t("album")} <span className="opt">{t("optional")}</span></label><input value={album} onChange={(e) => setAlbum(e.target.value)} /></div>
           <div><label>{t("language")}</label>
             <select value={language} onChange={(e) => setLanguage(e.target.value)}>
               {LANGS.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
@@ -883,7 +905,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
         )}
         <p className="hint2">{t("translateHint")}</p>
         <div className="actions">
-          <button className="save" onClick={() => onSave({ title: title.trim() || song.title, artist: artist.trim(), language, pl, en })}>{t("save")}</button>
+          <button className="save" onClick={() => onSave({ title: title.trim() || song.title, artist: artist.trim(), album: album.trim(), language, pl, en })}>{t("save")}</button>
           <button className="cancel" onClick={onBack}>{t("cancel")}</button>
         </div>
         <button className="danger" onClick={onRemove}>{t("removeSong")}</button>
@@ -924,6 +946,7 @@ const CSS = `
 .albsect{ font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--mist-dim); padding:20px 4px 10px; display:flex; align-items:center; gap:10px; }
 .albsect::after{ content:""; flex:1; height:1px; background:var(--line); }
 .artsect{ font-family:var(--display); font-weight:600; font-size:15px; color:#e4d9c6; padding:12px 4px 8px; }
+.albumsect{ font-family:var(--ui); font-weight:500; font-style:italic; font-size:12.5px; color:var(--mist-dim); padding:6px 4px 4px 14px; }
 .songs{ display:flex; flex-direction:column; gap:8px; }
 .song{ width:100%; text-align:left; cursor:pointer; background:var(--night-2); border:1px solid var(--line); border-radius:14px; padding:14px 16px; display:flex; align-items:center; gap:14px; color:inherit; font-family:inherit; transition:border-color .16s, transform .1s; }
 .song:hover{ border-color:var(--night-3); } .song:active{ transform:scale(.995); }
@@ -972,7 +995,7 @@ const CSS = `
 .trrow .tr{ flex:1; background:var(--night-3); border:1px solid var(--line); color:#eef1f6; border-radius:10px; padding:10px; font-family:var(--ui); font-size:13px; font-weight:500; cursor:pointer; }
 .trrow .tr:disabled{ opacity:.55; cursor:default; }
 .trrow select{ background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:10px; padding:0 10px; font-family:var(--ui); font-size:13px; outline:0; }
-.editor .meta3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:14px; }
+.editor .meta3{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px; }
 .addform{ display:flex; flex-direction:column; gap:14px; margin-bottom:6px; }
 .addlang{ margin-bottom:16px; }
 .searchlabel{ display:block; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--mist-dim); margin:0 0 7px; }
