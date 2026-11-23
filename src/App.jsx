@@ -14,6 +14,7 @@ import { supabase, setAccessToken, apiHeaders } from "./supabase.js";
 // Languages offered for a new song. `code` is the translation source code
 // (DeepL/Google); `bcp` drives text-to-speech and speech recognition.
 const LANGS = [
+  { name: "English", code: "EN", bcp: "en-GB" },
   { name: "Polish", code: "PL", bcp: "pl-PL" },
   { name: "Spanish", code: "ES", bcp: "es-ES" },
   { name: "French", code: "FR", bcp: "fr-FR" },
@@ -86,7 +87,7 @@ export default function App() {
     setLoading(false);
   }
   async function loadProfile() {
-    const { data } = await supabase.from("profiles").select("deepl_key,trial_used").eq("id", session.user.id).maybeSingle();
+    const { data } = await supabase.from("profiles").select("deepl_key,trial_used,target_lang").eq("id", session.user.id).maybeSingle();
     setProfile(data || null);
   }
   useEffect(() => {
@@ -101,7 +102,15 @@ export default function App() {
     flash(key ? "Your DeepL key is saved" : "Key removed");
     return true;
   }
+  async function saveTargetLang(name) {
+    const { error } = await supabase.from("profiles").upsert({ id: session.user.id, target_lang: name, updated_at: new Date().toISOString() });
+    if (error) { flash("Couldn't save: " + error.message); return false; }
+    await loadProfile();
+    flash(`Translations will be into ${name}`);
+    return true;
+  }
   const hasOwnKey = !!(profile && profile.deepl_key);
+  const targetLang = (profile && profile.target_lang) || "English";
 
   useEffect(() => { try { localStorage.setItem(PROVIDER_KEY, provider); } catch {} }, [provider]);
 
@@ -176,17 +185,18 @@ export default function App() {
         />
       )}
       {view === "settings" && (
-        <Settings profile={profile} hasOwnKey={hasOwnKey} onSave={saveDeeplKey} onBack={() => setView("list")} />
+        <Settings profile={profile} hasOwnKey={hasOwnKey} targetLang={targetLang}
+          onSave={saveDeeplKey} onSaveTarget={saveTargetLang} onBack={() => setView("list")} />
       )}
       {view === "add" && <AddSong onBack={() => setView("list")} onCreate={createSong} />}
       {view === "reader" && cur && (
-        <Reader song={cur} onBack={() => setView("list")} onEdit={() => setView("edit")}
+        <Reader song={cur} targetLang={targetLang} onBack={() => setView("list")} onEdit={() => setView("edit")}
           onPractice={() => setView("practice")} onFoundMedia={(patch) => saveSong(patch)} />
       )}
       {view === "practice" && cur && <Practice song={cur} onBack={() => setView("reader")} />}
       {view === "edit" && cur && (
         <Editor song={cur} provider={provider} setProvider={setProvider}
-          hasOwnKey={hasOwnKey} onSaveKey={saveDeeplKey}
+          hasOwnKey={hasOwnKey} onSaveKey={saveDeeplKey} targetLang={targetLang}
           onBack={() => setView("reader")}
           onSave={(patch) => { saveSong(patch); setView("reader"); flash("Saved"); }}
           onRemove={() => removeSong(cur.id)} flash={flash} />
@@ -267,13 +277,19 @@ function Auth({ flash }) {
 
 // ---- Library list -----------------------------------------------------------
 function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, onSettings, onSignOut }) {
-  // Group by language, then show the artist on each row.
-  const groups = [];
+  // Index by language, then by artist within each language.
+  const byLang = [];
   songs.forEach((s) => {
-    let g = groups.find((x) => x.language === s.language);
-    if (!g) { g = { language: s.language, items: [] }; groups.push(g); }
-    g.items.push(s);
+    const L = s.language || "Other";
+    let lg = byLang.find((x) => x.language === L);
+    if (!lg) { lg = { language: L, artists: [] }; byLang.push(lg); }
+    const A = (s.artist && s.artist.trim()) || "Unknown artist";
+    let ar = lg.artists.find((x) => x.artist === A);
+    if (!ar) { ar = { artist: A, items: [] }; lg.artists.push(ar); }
+    ar.items.push(s);
   });
+  byLang.sort((a, b) => a.language.localeCompare(b.language));
+  byLang.forEach((lg) => lg.artists.sort((a, b) => a.artist.localeCompare(b.artist)));
   const done = songs.filter((s) => s.pl && s.pl.trim()).length;
 
   return (
@@ -299,24 +315,29 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, o
             Nothing here yet.<br />Tap <b>Add a song</b> to start your library.
           </div>
         ) : (
-          groups.map((g) => (
-            <div key={g.language}>
-              <div className="albsect">{g.language}</div>
-              <div className="songs">
-                {g.items.map((s, i) => {
-                  const filled = !!(s.pl && s.pl.trim());
-                  return (
-                    <button key={s.id} className="song" onClick={() => onOpen(s.id)}>
-                      <span className="num">{i + 1}</span>
-                      <span className="meta">
-                        <h3>{s.title || "Untitled"}</h3>
-                        <p>{s.artist ? s.artist + " · " : ""}{filled ? s.pl.split("\n").filter((l) => l.trim()).length + " lines" : "No lyrics yet — tap to add"}</p>
-                      </span>
-                      <span className={"dot " + (filled ? "full" : "empty")} />
-                    </button>
-                  );
-                })}
-              </div>
+          byLang.map((lg) => (
+            <div key={lg.language}>
+              <div className="albsect">{lg.language}</div>
+              {lg.artists.map((ar) => (
+                <div key={ar.artist}>
+                  <div className="artsect">{ar.artist}</div>
+                  <div className="songs">
+                    {ar.items.map((s, i) => {
+                      const filled = !!(s.pl && s.pl.trim());
+                      return (
+                        <button key={s.id} className="song" onClick={() => onOpen(s.id)}>
+                          <span className="num">{i + 1}</span>
+                          <span className="meta">
+                            <h3>{s.title || "Untitled"}</h3>
+                            <p>{filled ? s.pl.split("\n").filter((l) => l.trim()).length + " lines" : "No lyrics yet — tap to add"}</p>
+                          </span>
+                          <span className={"dot " + (filled ? "full" : "empty")} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           ))
         )}
@@ -422,7 +443,7 @@ function AddSong({ onBack, onCreate }) {
 }
 
 // ---- Settings (your own DeepL key) -----------------------------------------
-function Settings({ profile, hasOwnKey, onSave, onBack }) {
+function Settings({ profile, hasOwnKey, targetLang, onSave, onSaveTarget, onBack }) {
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const used = profile?.trial_used || 0;
@@ -432,9 +453,16 @@ function Settings({ profile, hasOwnKey, onSave, onBack }) {
     <>
       <div className="rbar">
         <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
-        <div className="ttl"><h2>Settings</h2><p>Your translation key</p></div>
+        <div className="ttl"><h2>Settings</h2><p>Translation language & key</p></div>
       </div>
       <div className="editor">
+        <div className="setcard" style={{ marginBottom: 16 }}>
+          <h3>Translate into</h3>
+          <p className="setstate">The language your lyrics are translated and shown in. English by default — pick your own if you're learning from a different first language.</p>
+          <select value={targetLang || "English"} onChange={(e) => onSaveTarget(e.target.value)}>
+            {LANGS.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
+          </select>
+        </div>
         <div className="setcard">
           <h3>Your DeepL key</h3>
           {hasOwnKey ? (
@@ -457,7 +485,7 @@ function Settings({ profile, hasOwnKey, onSave, onBack }) {
 }
 
 // ---- Reader (side-by-side + player + auto-scroll) ---------------------------
-function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
+function Reader({ song, targetLang, onBack, onEdit, onPractice, onFoundMedia }) {
   const pl = (song.pl || "").split("\n");
   const en = (song.en || "").split("\n");
   const n = Math.max(pl.length, en.length);
@@ -556,7 +584,7 @@ function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
         )}
       </div>
       <div className="sheet">
-        <div className="sheethead"><span>{song.language}</span><span>English</span></div>
+        <div className="sheethead"><span>{song.language}</span><span>{targetLang || "English"}</span></div>
         {!has ? (
           <div className="emptysheet">No lyrics here yet.<br />Tap <b>Edit</b> to paste the original, then Auto-translate or type the English.</div>
         ) : (
@@ -674,7 +702,7 @@ function Practice({ song, onBack }) {
 }
 
 // ---- Editor -----------------------------------------------------------------
-function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, onBack, onSave, onRemove, flash }) {
+function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang, onBack, onSave, onRemove, flash }) {
   const [title, setTitle] = useState(song.title);
   const [artist, setArtist] = useState(song.artist || "");
   const [language, setLanguage] = useState(song.language || "Polish");
@@ -717,7 +745,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, onBack, onS
     try {
       const r = await fetch("/api/translate", {
         method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
-        body: JSON.stringify({ lines, source: langOf(language).code, target: "EN", provider }),
+        body: JSON.stringify({ lines, source: langOf(language).code, target: langOf(targetLang || "English").code, provider }),
       });
       if (r.status === 402) { setTrialOut(true); setBusy(false); return; } // free trial used up
       const j = await r.json();
@@ -772,8 +800,8 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, onBack, onS
             <p className="findhint">Opens a search for this song — copy the lyric from the results (e.g. tekstowo.pl) and paste it above.</p>
           </div>
           <div>
-            <label>English <span className="opt">auto or type</span></label>
-            <textarea className="en" value={en} onChange={(e) => setEn(e.target.value)} placeholder={"Auto-translate, or type the English\nlined up with the original."} />
+            <label>{targetLang || "English"} <span className="opt">auto or type</span></label>
+            <textarea className="en" value={en} onChange={(e) => setEn(e.target.value)} placeholder={`Auto-translate, or type the ${targetLang || "English"}\nlined up with the original.`} />
             <div className="trrow">
               <button className="tr" onClick={autoTranslate} disabled={busy}>{busy ? "Translating…" : "⟳ Auto-translate"}</button>
               <select value={provider} onChange={(e) => setProvider(e.target.value)} aria-label="Translation provider">
@@ -836,6 +864,7 @@ const CSS = `
 .emptylib{ text-align:center; color:var(--mist-dim); padding:48px 20px; font-size:14px; line-height:1.6; } .emptylib b{ color:#f0ebe0; }
 .albsect{ font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--mist-dim); padding:20px 4px 10px; display:flex; align-items:center; gap:10px; }
 .albsect::after{ content:""; flex:1; height:1px; background:var(--line); }
+.artsect{ font-family:var(--display); font-weight:600; font-size:15px; color:#e4d9c6; padding:12px 4px 8px; }
 .songs{ display:flex; flex-direction:column; gap:8px; }
 .song{ width:100%; text-align:left; cursor:pointer; background:var(--night-2); border:1px solid var(--line); border-radius:14px; padding:14px 16px; display:flex; align-items:center; gap:14px; color:inherit; font-family:inherit; transition:border-color .16s, transform .1s; }
 .song:hover{ border-color:var(--night-3); } .song:active{ transform:scale(.995); }
