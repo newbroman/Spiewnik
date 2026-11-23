@@ -595,7 +595,7 @@ function Editor({ song, provider, setProvider, onBack, onSave, onRemove, flash }
     }
   }
 
-  const findUrl = "https://www.google.com/search?q=" + encodeURIComponent(`${artist} ${title || ""} tekst lyrics`);
+  const findUrl = "https://www.google.com/search?q=" + encodeURIComponent(`${artist} ${title || ""} ${language === "Polish" ? "tekst" : "lyrics"}`.trim());
 
   return (
     <>
@@ -618,9 +618,10 @@ function Editor({ song, provider, setProvider, onBack, onSave, onRemove, flash }
             <label>{language} <span className="opt">paste the whole lyric</span></label>
             <textarea value={pl} onChange={(e) => setPl(e.target.value)} placeholder={fetching ? "Looking for the lyrics…" : "Paste the full lyric here —\nall the lines at once."} />
             <div className="lyrrow">
-              <button className="fetch" onClick={() => fetchLyrics(false)} disabled={fetching}>{fetching ? "Fetching…" : "⤓ Fetch lyrics"}</button>
-              <a className="find" href={findUrl} target="_blank" rel="noreferrer">Find manually ↗</a>
+              <a className="findbtn" href={findUrl} target="_blank" rel="noreferrer">🔍 Find lyrics on Google ↗</a>
+              <button className="fetch" onClick={() => fetchLyrics(false)} disabled={fetching}>{fetching ? "Fetching…" : "⤓ Auto-fetch"}</button>
             </div>
+            <p className="findhint">Opens a search for this song — copy the lyric from the results (e.g. tekstowo.pl) and paste it above.</p>
           </div>
           <div>
             <label>English <span className="opt">auto or type</span></label>
@@ -706,9 +707,10 @@ const CSS = `
 .editor .opt{ text-transform:none; letter-spacing:0; font-weight:400; color:var(--mist-dim); margin-left:6px; }
 .editor textarea{ width:100%; min-height:300px; background:var(--night-2); border:1px solid var(--line); border-radius:12px; padding:12px 13px; color:#eef1f6; font-size:14px; line-height:1.55; outline:0; resize:vertical; font-family:var(--serif); }
 .editor textarea.en{ font-family:var(--ui); } .editor textarea:focus{ border-color:var(--rose); }
-.lyrrow{ display:flex; align-items:center; gap:12px; margin-top:8px; }
-.editor .fetch{ background:var(--night-3); border:1px solid var(--line); color:#eef1f6; border-radius:10px; padding:8px 14px; font-family:var(--ui); font-size:13px; font-weight:500; cursor:pointer; } .editor .fetch:disabled{ opacity:.55; cursor:default; }
-.editor .find{ font-size:12px; color:var(--rose); text-decoration:none; } .editor .find:hover{ text-decoration:underline; }
+.lyrrow{ display:flex; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap; }
+.editor .findbtn{ background:var(--rose); color:#20140f; border:0; border-radius:10px; padding:10px 16px; font-family:var(--ui); font-size:13px; font-weight:600; cursor:pointer; text-decoration:none; display:inline-block; }
+.editor .fetch{ background:var(--night-3); border:1px solid var(--line); color:#eef1f6; border-radius:10px; padding:10px 14px; font-family:var(--ui); font-size:13px; font-weight:500; cursor:pointer; } .editor .fetch:disabled{ opacity:.55; cursor:default; }
+.editor .findhint{ font-size:11.5px; color:var(--mist-dim); margin:8px 2px 0; line-height:1.5; }
 .trrow{ display:flex; gap:8px; margin-top:8px; }
 .trrow .tr{ flex:1; background:var(--night-3); border:1px solid var(--line); color:#eef1f6; border-radius:10px; padding:10px; font-family:var(--ui); font-size:13px; font-weight:500; cursor:pointer; }
 .trrow .tr:disabled{ opacity:.55; cursor:default; }
