@@ -549,6 +549,31 @@ function Editor({ song, provider, setProvider, onBack, onSave, onRemove, flash }
   const [pl, setPl] = useState(song.pl || "");
   const [en, setEn] = useState(song.en || "");
   const [busy, setBusy] = useState(false);
+  const [fetching, setFetching] = useState(false);
+
+  // Try to pull the original lyric automatically (lyrics.ovh via /api/lyrics).
+  // `auto` = called silently on open; otherwise it's the button, which reports.
+  async function fetchLyrics(auto) {
+    if (!title.trim() || !artist.trim()) { if (!auto) flash("Add the artist and title first"); return; }
+    setFetching(true);
+    try {
+      const r = await fetch(`/api/lyrics?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`, { headers: apiHeaders() });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Lookup failed");
+      if (j.lyrics && j.lyrics.trim()) {
+        setPl((cur) => (cur && cur.trim() ? cur : j.lyrics.trim())); // never clobber typed text
+        if (!auto) flash("Lyrics found — check them over, then Auto-translate");
+      } else if (!auto) {
+        flash("No lyrics found automatically — use Find or paste them in");
+      }
+    } catch (e) {
+      if (!auto) flash("Lyric lookup failed: " + e.message);
+    } finally {
+      setFetching(false);
+    }
+  }
+  // On opening a song that has no lyrics yet, have a go automatically.
+  useEffect(() => { if (!(song.pl || "").trim()) fetchLyrics(true); /* eslint-disable-next-line */ }, []);
 
   async function autoTranslate() {
     const lines = pl.split("\n");
@@ -591,8 +616,11 @@ function Editor({ song, provider, setProvider, onBack, onSave, onRemove, flash }
         <div className="cols">
           <div>
             <label>{language} <span className="opt">paste the whole lyric</span></label>
-            <textarea value={pl} onChange={(e) => setPl(e.target.value)} placeholder={"Paste the full lyric here —\nall the lines at once."} />
-            <a className="find" href={findUrl} target="_blank" rel="noreferrer">Find the lyrics ↗</a>
+            <textarea value={pl} onChange={(e) => setPl(e.target.value)} placeholder={fetching ? "Looking for the lyrics…" : "Paste the full lyric here —\nall the lines at once."} />
+            <div className="lyrrow">
+              <button className="fetch" onClick={() => fetchLyrics(false)} disabled={fetching}>{fetching ? "Fetching…" : "⤓ Fetch lyrics"}</button>
+              <a className="find" href={findUrl} target="_blank" rel="noreferrer">Find manually ↗</a>
+            </div>
           </div>
           <div>
             <label>English <span className="opt">auto or type</span></label>
@@ -678,7 +706,9 @@ const CSS = `
 .editor .opt{ text-transform:none; letter-spacing:0; font-weight:400; color:var(--mist-dim); margin-left:6px; }
 .editor textarea{ width:100%; min-height:300px; background:var(--night-2); border:1px solid var(--line); border-radius:12px; padding:12px 13px; color:#eef1f6; font-size:14px; line-height:1.55; outline:0; resize:vertical; font-family:var(--serif); }
 .editor textarea.en{ font-family:var(--ui); } .editor textarea:focus{ border-color:var(--rose); }
-.editor .find{ display:inline-block; margin-top:8px; font-size:12px; color:var(--rose); text-decoration:none; } .editor .find:hover{ text-decoration:underline; }
+.lyrrow{ display:flex; align-items:center; gap:12px; margin-top:8px; }
+.editor .fetch{ background:var(--night-3); border:1px solid var(--line); color:#eef1f6; border-radius:10px; padding:8px 14px; font-family:var(--ui); font-size:13px; font-weight:500; cursor:pointer; } .editor .fetch:disabled{ opacity:.55; cursor:default; }
+.editor .find{ font-size:12px; color:var(--rose); text-decoration:none; } .editor .find:hover{ text-decoration:underline; }
 .trrow{ display:flex; gap:8px; margin-top:8px; }
 .trrow .tr{ flex:1; background:var(--night-3); border:1px solid var(--line); color:#eef1f6; border-radius:10px; padding:10px; font-family:var(--ui); font-size:13px; font-weight:500; cursor:pointer; }
 .trrow .tr:disabled{ opacity:.55; cursor:default; }
