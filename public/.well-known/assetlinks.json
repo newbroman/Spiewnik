@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.spiewnik.twa",
+      "sha256_cert_fingerprints": [
+        "88:94:93:72:25:33:1D:E0:3A:F5:8A:29:3D:8F:83:35:AC:2F:B4:36:C2:01:96:46:7F:68:B3:C4:34:22:BA:6C"
+      ]
+    }
+  }
+]
