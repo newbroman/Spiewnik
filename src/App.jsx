@@ -130,7 +130,8 @@ export default function App() {
       <style>{CSS}</style>
       <div className="app">
         {view === "list" && <ListView songs={songs} onOpen={open} onAdd={addSong} />}
-        {view === "reader" && cur && <Reader song={cur} onBack={() => setView("list")} onEdit={() => edit(cur.id)} onFoundSpotify={(id) => saveSong({ spotifyId: id })} />}
+        {view === "reader" && cur && <Reader song={cur} onBack={() => setView("list")} onEdit={() => edit(cur.id)} onPractice={() => setView("practice")} onFoundSpotify={(id) => saveSong({ spotifyId: id })} />}
+        {view === "practice" && cur && <Practice song={cur} onBack={() => setView("reader")} />}
         {view === "edit" && cur && (
           <Editor
             song={cur} provider={provider} setProvider={setProvider}
@@ -182,7 +183,7 @@ function ListView({ songs, onOpen, onAdd }) {
   );
 }
 
-function Reader({ song, onBack, onEdit, onFoundSpotify }) {
+function Reader({ song, onBack, onEdit, onPractice, onFoundSpotify }) {
   const pl = (song.pl || "").split("\n");
   const en = (song.en || "").split("\n");
   const n = Math.max(pl.length, en.length);
@@ -214,6 +215,7 @@ function Reader({ song, onBack, onEdit, onFoundSpotify }) {
       <div className="rbar">
         <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
         <div className="ttl"><h2>{song.title}</h2><p>{song.album}</p></div>
+        {has ? <button className="icbtn" onClick={onPractice}>Practice</button> : null}
         <button className="icbtn accent" onClick={onEdit}>Edit</button>
       </div>
       {showPlayer && (
@@ -244,6 +246,104 @@ function Reader({ song, onBack, onEdit, onFoundSpotify }) {
             })}
           </div>
         )}
+      </div>
+    </>
+  );
+}
+
+// Say-the-line practice: hear each line (text-to-speech), then speak it and get
+// a per-word match score (speech recognition). All in-browser, no keys.
+const pracWords = (s) => norm(s).replace(/[^\p{L}\s]/gu, " ").split(/\s+/).filter(Boolean);
+function grade(target, heard) {
+  const t = pracWords(target); const h = new Set(pracWords(heard));
+  let ok = 0; const marks = t.map((w) => { const hit = h.has(w); if (hit) ok++; return { w, ok: hit }; });
+  return { pct: Math.round((100 * ok) / Math.max(1, t.length)), marks };
+}
+
+function Practice({ song, onBack }) {
+  const lines = React.useMemo(() => {
+    const pl = (song.pl || "").split("\n");
+    const en = (song.en || "").split("\n");
+    return pl.map((s, i) => ({ pl: s.trim(), en: (en[i] || "").trim() })).filter((l) => l.pl);
+  }, [song.id]);
+  const [idx, setIdx] = useState(0);
+  const [heard, setHeard] = useState("");
+  const [score, setScore] = useState(null);
+  const [listening, setListening] = useState(false);
+  const [showEn, setShowEn] = useState(false);
+  const recRef = useRef(null);
+  const Rec = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
+  const line = lines[idx];
+
+  useEffect(() => () => { try { recRef.current?.stop(); window.speechSynthesis?.cancel(); } catch {} }, []);
+
+  if (!line) return (
+    <>
+      <div className="rbar">
+        <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
+        <div className="ttl"><h2>Practice</h2><p>{song.title}</p></div>
+      </div>
+      <div className="prac"><p className="pracnote">No lyrics to practise yet — add them under Edit first.</p></div>
+    </>
+  );
+
+  const speak = () => {
+    try {
+      const synth = window.speechSynthesis; synth.cancel();
+      const u = new SpeechSynthesisUtterance(line.pl);
+      u.lang = "pl-PL"; u.rate = 0.9;
+      const v = synth.getVoices().find((x) => /pl/i.test(x.lang));
+      if (v) u.voice = v;
+      synth.speak(u);
+    } catch {}
+  };
+  const listen = () => {
+    if (!Rec) return;
+    const rec = new Rec(); recRef.current = rec;
+    rec.lang = "pl-PL"; rec.interimResults = false; rec.maxAlternatives = 1;
+    setHeard(""); setScore(null); setListening(true);
+    rec.onresult = (e) => { const t = e.results[0][0].transcript; setHeard(t); setScore(grade(line.pl, t)); };
+    rec.onerror = () => setListening(false);
+    rec.onend = () => setListening(false);
+    try { rec.start(); } catch { setListening(false); }
+  };
+  const stopListen = () => { try { recRef.current?.stop(); } catch {} setListening(false); };
+  const go = (d) => { stopListen(); setHeard(""); setScore(null); setShowEn(false); setIdx((i) => Math.min(lines.length - 1, Math.max(0, i + d))); };
+
+  return (
+    <>
+      <div className="rbar">
+        <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
+        <div className="ttl"><h2>Practice</h2><p>{song.title} · {idx + 1}/{lines.length}</p></div>
+      </div>
+      <div className="prac">
+        <div className="pracline">
+          {score ? score.marks.map((m, i) => <span key={i} className={m.ok ? "wok" : "wno"}>{m.w}{" "}</span>) : line.pl}
+        </div>
+        {showEn && <div className="pracen">{line.en || "—"}</div>}
+        <button className="pracen-toggle" onClick={() => setShowEn((v) => !v)}>{showEn ? "Hide meaning" : "Show meaning"}</button>
+
+        <div className="pracbtns">
+          <button className="pracbtn" onClick={speak}>Listen</button>
+          {Rec ? (
+            <button className={"pracbtn mic" + (listening ? " on" : "")} onClick={listening ? stopListen : listen}>
+              {listening ? "Listening… stop" : "Speak"}
+            </button>
+          ) : null}
+        </div>
+
+        {heard && (
+          <div className="pracfb">
+            <div className="pracpct" data-good={!!(score && score.pct >= 70)}>{score ? score.pct : 0}% match</div>
+            <div className="pracheard">You said: “{heard}”</div>
+          </div>
+        )}
+        {!Rec && <p className="pracnote">Speaking feedback needs Chrome or an Android phone. You can still tap Listen and read along.</p>}
+
+        <div className="pracnav">
+          <button className="navbtn" onClick={() => go(-1)} disabled={idx === 0}>← Prev</button>
+          <button className="navbtn" onClick={() => go(1)} disabled={idx === lines.length - 1}>Next →</button>
+        </div>
       </div>
     </>
   );
@@ -378,6 +478,22 @@ const CSS = `
 .editor .save{ flex:1; background:var(--rose); color:#20140f; border:0; border-radius:12px; padding:13px; font-weight:600; font-size:15px; font-family:var(--ui); cursor:pointer; }
 .editor .cancel{ background:none; border:1px solid var(--line); color:var(--mist-dim); border-radius:12px; padding:13px 18px; font-size:14px; font-family:var(--ui); cursor:pointer; }
 .editor .danger{ background:none; border:0; color:var(--mist-dim); font-size:12.5px; cursor:pointer; margin-top:18px; text-decoration:underline; }
+.prac{ padding:22px 18px 44px; max-width:520px; margin:0 auto; }
+.pracline{ font-family:var(--serif); font-size:25px; line-height:1.45; color:#f3ede1; text-align:center; margin:22px 0 2px; text-wrap:balance; }
+.pracline .wok{ color:#8fd49a; } .pracline .wno{ color:#e8938a; }
+.pracen{ text-align:center; color:var(--mist-dim); font-size:15px; margin:10px 0 0; }
+.pracen-toggle{ display:block; margin:10px auto 0; background:none; border:0; color:var(--rose); font-size:12.5px; cursor:pointer; }
+.pracbtns{ display:flex; gap:10px; justify-content:center; margin:28px 0 6px; }
+.pracbtn{ background:var(--night-2); border:1px solid var(--line); color:#eef1f6; border-radius:12px; padding:13px 24px; font-size:15px; font-family:var(--ui); font-weight:500; cursor:pointer; }
+.pracbtn.mic.on{ background:var(--rose); border-color:var(--rose); color:#20140f; }
+.pracfb{ text-align:center; margin:20px 0 4px; }
+.pracpct{ font-family:var(--display); font-weight:900; font-size:32px; color:#e8938a; }
+.pracpct[data-good="true"]{ color:#8fd49a; }
+.pracheard{ color:var(--mist-dim); font-size:14px; margin-top:8px; font-style:italic; }
+.pracnote{ text-align:center; color:var(--mist-dim); font-size:12.5px; margin:18px auto 0; max-width:300px; line-height:1.55; }
+.pracnav{ display:flex; gap:10px; justify-content:space-between; margin-top:34px; }
+.navbtn{ flex:1; background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:11px; padding:12px; font-size:14px; font-family:var(--ui); cursor:pointer; }
+.navbtn:disabled{ opacity:.4; cursor:default; }
 .kl-toast{ position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(10px); opacity:0; background:#2c2030; color:#f3e7e4; border:1px solid var(--rose); border-radius:11px; padding:10px 15px; font-size:12.5px; pointer-events:none; transition:opacity .2s, transform .2s; z-index:9; max-width:84%; text-align:center; }
 .kl-toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
 @media(max-width:520px){ .cell.pl{ font-size:15px; } .cell.en{ font-size:12.5px; } .editor .cols{ grid-template-columns:1fr; } .editor .meta2{ grid-template-columns:1fr; } .top h1{ font-size:26px; } }
