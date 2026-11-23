@@ -11,8 +11,8 @@
 //  (Vercel project → Storage → create/connect a Redis store.)
 // ============================================================================
 
-const KV_URL = process.env.KV_REST_API_URL;
-const KV_TOKEN = process.env.KV_REST_API_TOKEN;
+const KV_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+const KV_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 const DOC = "spiewnik:songs";
 
 async function kv(command) {
