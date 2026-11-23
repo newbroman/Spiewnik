@@ -225,6 +225,7 @@ function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
   const pick = (s) => { setSource(s); try { localStorage.setItem(PLAYER_KEY, s); } catch {} };
   return (
     <>
+      <div className="rhead2">
       <div className="rbar">
         <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
         <div className="ttl"><h2>{song.title}</h2><p>{song.album}</p></div>
@@ -256,6 +257,7 @@ function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
           )}
         </div>
       )}
+      </div>
       <div className="sheet">
         <div className="sheethead"><span>Polski</span><span>English</span></div>
         {!has ? (
@@ -478,11 +480,12 @@ const CSS = `
 .icbtn{ background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:10px; height:38px; min-width:38px; padding:0 12px; cursor:pointer; font-size:14px; font-family:var(--ui); line-height:1; }
 .icbtn.accent{ background:var(--rose); border-color:var(--rose); color:#20140f; font-weight:600; }
 .rbar .ttl{ flex:1; min-width:0; } .rbar .ttl h2{ margin:0; font-family:var(--display); font-weight:900; font-size:19px; color:#f3ede1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .rbar .ttl p{ margin:2px 0 0; font-size:12px; color:var(--mist-dim); }
-.playerbox{ padding:14px 16px 0; }
+.rhead2{ position:sticky; top:0; z-index:4; background:var(--night); box-shadow:0 12px 20px -14px rgba(0,0,0,.6); }
+.playerbox{ padding:12px 16px 12px; }
 .srctoggle{ display:flex; gap:6px; margin-bottom:9px; }
 .srctoggle button{ background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:8px; padding:6px 13px; font-size:12px; font-family:var(--ui); font-weight:500; cursor:pointer; }
 .srctoggle button.on{ background:var(--rose); border-color:var(--rose); color:#20140f; }
-.yt{ display:block; width:100%; aspect-ratio:16/9; border:0; border-radius:12px; background:#000; }
+.yt{ display:block; width:100%; aspect-ratio:16/9; max-height:40vh; border:0; border-radius:12px; background:#000; }
 .spotify{ display:block; width:100%; border:0; border-radius:12px; }
 .sheet{ background:var(--paper); margin:16px; border-radius:16px; padding:8px 4px 20px; box-shadow:0 18px 50px rgba(0,0,0,.35); }
 .sheethead{ display:grid; grid-template-columns:1fr 1fr; padding:12px 8px 10px; }
