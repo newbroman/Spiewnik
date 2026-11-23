@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 // ============================================================================
 //  Śpiewnik — side-by-side lyric study (Polish | English)
@@ -45,6 +45,24 @@ function loadSongs() {
   const additions = seed().filter((s) => !have.has(norm(s.title)));
   return additions.length ? [...stored, ...additions] : stored;
 }
+
+// Combine two song lists by title. The copy that HAS lyrics wins; if both have
+// lyrics, the more recently edited one wins. This is what keeps a device's real
+// words from being wiped by another device's blanks when syncing.
+function mergeByTitle(a, b) {
+  const map = new Map();
+  const add = (s) => {
+    const k = norm(s.title);
+    const ex = map.get(k);
+    if (!ex) { map.set(k, { ...s }); return; }
+    const exHas = !!(ex.pl && ex.pl.trim()), sHas = !!(s.pl && s.pl.trim());
+    if (sHas && !exHas) map.set(k, { ...ex, ...s });
+    else if (sHas === exHas && (s.updatedAt || 0) >= (ex.updatedAt || 0)) map.set(k, { ...ex, ...s });
+  };
+  (a || []).forEach(add);
+  (b || []).forEach(add);
+  return [...map.values()];
+}
 function saveSongs(songs) { try { localStorage.setItem(KEY, JSON.stringify({ songs })); } catch {} }
 const esc = (s) => s || "";
 
@@ -55,7 +73,35 @@ export default function App() {
   const [provider, setProvider] = useState(() => { try { return localStorage.getItem(PROVIDER_KEY) || "deepl"; } catch { return "deepl"; } });
   const [toast, setToast] = useState("");
 
-  useEffect(() => { saveSongs(songs); }, [songs]);
+  const syncedRef = useRef(false);
+  const pushTimer = useRef(null);
+  const pushServer = (list) => {
+    clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(() => {
+      fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ songs: list }) }).catch(() => {});
+    }, 600);
+  };
+
+  // Pull the shared lyrics once, merge them with whatever is on this device,
+  // then keep pushing changes up. Falls back to local-only if the store is off.
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/data");
+        if (r.ok) {
+          const j = await r.json();
+          if (Array.isArray(j.songs)) setSongs((prev) => mergeByTitle(j.songs, prev));
+        }
+      } catch {}
+      syncedRef.current = true;
+      setSongs((prev) => { pushServer(prev); return prev; }); // seed the store from this device
+    })();
+  }, []);
+
+  useEffect(() => {
+    saveSongs(songs);
+    if (syncedRef.current) pushServer(songs);
+  }, [songs]);
   useEffect(() => { try { localStorage.setItem(PROVIDER_KEY, provider); } catch {} }, [provider]);
 
   const cur = songs.find((s) => s.id === curId);
@@ -261,7 +307,7 @@ function Editor({ song, provider, setProvider, onBack, onSave, onRemove, flash }
         </div>
         <p className="hint2">Auto-translate goes line-for-line, so the columns stay aligned. Machine translation is a rough first draft — fix it by hand, which is where the learning is. Needs the translate key set up on your deployment; see SETUP-TRANSLATE.md.</p>
         <div className="actions">
-          <button className="save" onClick={() => onSave({ title: title.trim() || song.title, album: album.trim(), pl, en })}>Save</button>
+          <button className="save" onClick={() => onSave({ title: title.trim() || song.title, album: album.trim(), pl, en, updatedAt: Date.now() })}>Save</button>
           <button className="cancel" onClick={onBack}>Cancel</button>
         </div>
         <button className="danger" onClick={onRemove}>Remove this song</button>
