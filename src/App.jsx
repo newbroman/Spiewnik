@@ -304,42 +304,93 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, o
   );
 }
 
-// ---- Add a song -------------------------------------------------------------
+// ---- Add a song (search, pick, or add manually) ----------------------------
 function AddSong({ onBack, onCreate }) {
   const [language, setLanguage] = useState("Polish");
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [manual, setManual] = useState(false);
   const [artist, setArtist] = useState("");
   const [title, setTitle] = useState("");
-  const [busy, setBusy] = useState(false);
-  const create = async () => {
-    if (!title.trim() || busy) return;
-    setBusy(true);
+
+  async function doSearch() {
+    if (!q.trim() || busy) return;
+    setBusy(true); setSearched(true);
+    try {
+      const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`, { headers: apiHeaders() });
+      const j = await r.json();
+      setResults(Array.isArray(j.results) ? j.results : []);
+    } catch { setResults([]); } finally { setBusy(false); }
+  }
+  async function pick(res) {
+    if (creating) return;
+    setCreating(true);
+    await onCreate({ language, artist: res.artist, title: res.title });
+  }
+  async function createManual() {
+    if (!title.trim() || creating) return;
+    setCreating(true);
     await onCreate({ language, artist: artist.trim(), title: title.trim() });
-  };
+  }
+
   return (
     <>
       <div className="rbar">
         <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
-        <div className="ttl"><h2>Add a song</h2><p>Any artist, any language</p></div>
+        <div className="ttl"><h2>Add a song</h2><p>Search for it, or add it by hand</p></div>
       </div>
       <div className="editor">
-        <div className="addform">
-          <div><label>Language</label>
-            <select value={language} onChange={(e) => setLanguage(e.target.value)}>
-              {LANGS.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
-            </select>
-          </div>
-          <div><label>Artist</label>
-            <input value={artist} placeholder="e.g. Daria ze Śląska" onChange={(e) => setArtist(e.target.value)} />
-          </div>
-          <div><label>Title</label>
-            <input value={title} autoFocus placeholder="Song title" onChange={(e) => setTitle(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && create()} />
-          </div>
+        <div className="addlang">
+          <label>Language of the song</label>
+          <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+            {LANGS.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
+          </select>
         </div>
-        <div className="actions">
-          <button className="save" onClick={create} disabled={busy}>{busy ? "Adding…" : "Add & paste lyrics"}</button>
-          <button className="cancel" onClick={onBack}>Cancel</button>
-        </div>
+
+        {!manual ? (
+          <>
+            <label className="searchlabel">Search for a song</label>
+            <div className="searchrow">
+              <input value={q} autoFocus placeholder="Artist and/or song title"
+                onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doSearch()} />
+              <button className="searchbtn" onClick={doSearch} disabled={busy || !q.trim()}>{busy ? "…" : "Search"}</button>
+            </div>
+
+            <div className="results">
+              {results.map((r, i) => (
+                <button key={i} className="sresult" onClick={() => pick(r)} disabled={creating}>
+                  <span className="meta">
+                    <h3>{r.title}</h3>
+                    <p>{[r.artist, r.year].filter(Boolean).join(" · ")}</p>
+                  </span>
+                  <span className="pickarrow">＋</span>
+                </button>
+              ))}
+              {searched && !busy && results.length === 0 && (
+                <div className="noresults">No matches. Check the spelling, or add it by hand below.</div>
+              )}
+            </div>
+
+            <button className="manuallink" onClick={() => setManual(true)}>Can’t find it? Add manually →</button>
+          </>
+        ) : (
+          <>
+            <div className="addform">
+              <div><label>Artist</label>
+                <input value={artist} placeholder="e.g. Daria ze Śląska" onChange={(e) => setArtist(e.target.value)} /></div>
+              <div><label>Title</label>
+                <input value={title} autoFocus placeholder="Song title" onChange={(e) => setTitle(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && createManual()} /></div>
+            </div>
+            <div className="actions">
+              <button className="save" onClick={createManual} disabled={creating}>{creating ? "Adding…" : "Add & paste lyrics"}</button>
+              <button className="cancel" onClick={() => setManual(false)}>Back to search</button>
+            </div>
+          </>
+        )}
       </div>
     </>
   );
@@ -739,6 +790,18 @@ const CSS = `
 .trrow select{ background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:10px; padding:0 10px; font-family:var(--ui); font-size:13px; outline:0; }
 .editor .meta3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:14px; }
 .addform{ display:flex; flex-direction:column; gap:14px; margin-bottom:6px; }
+.addlang{ margin-bottom:16px; }
+.searchlabel{ display:block; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--mist-dim); margin:0 0 7px; }
+.searchrow{ display:flex; gap:8px; }
+.searchrow input{ flex:1; }
+.searchbtn{ background:var(--rose); color:#20140f; border:0; border-radius:11px; padding:0 18px; font-family:var(--ui); font-size:14px; font-weight:600; cursor:pointer; } .searchbtn:disabled{ opacity:.5; cursor:default; }
+.results{ display:flex; flex-direction:column; gap:8px; margin-top:14px; }
+.sresult{ width:100%; text-align:left; cursor:pointer; background:var(--night-2); border:1px solid var(--line); border-radius:12px; padding:12px 14px; display:flex; align-items:center; gap:12px; color:inherit; font-family:inherit; }
+.sresult:hover{ border-color:var(--rose); } .sresult:disabled{ opacity:.6; }
+.sresult .meta{ flex:1; min-width:0; } .sresult .meta h3{ margin:0; font-family:var(--display); font-weight:600; font-size:16px; color:#f0ebe0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .sresult .meta p{ margin:2px 0 0; font-size:12px; color:var(--mist-dim); }
+.pickarrow{ flex:none; color:var(--rose); font-size:18px; font-weight:600; }
+.noresults{ color:var(--mist-dim); font-size:13px; text-align:center; padding:20px; }
+.manuallink{ display:block; margin:18px auto 0; background:none; border:0; color:var(--rose); font-size:13px; cursor:pointer; }
 .editor input, .editor select{ width:100%; background:var(--night-2); border:1px solid var(--line); border-radius:11px; padding:11px 13px; color:#eef1f6; font-size:14px; outline:0; font-family:var(--ui); } .editor input:focus, .editor select:focus{ border-color:var(--rose); }
 .editor .hint2{ font-size:12px; color:var(--mist-dim); margin:12px 2px 0; line-height:1.5; }
 .editor .actions{ display:flex; gap:10px; margin-top:16px; }

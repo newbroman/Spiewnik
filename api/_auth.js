@@ -33,5 +33,22 @@ export async function authorized(req) {
   return false;
 }
 
+// Resolve the Supabase user behind a request's Bearer token, or null.
+// Returns the user object plus the raw token (handy for per-user REST calls).
+export async function getUser(req) {
+  const header = req.headers["authorization"] || req.headers["Authorization"] || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (!token) return null;
+  try {
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${token}` },
+    });
+    if (r.ok) { const u = await r.json(); return u && u.id ? { ...u, token } : null; }
+  } catch { /* fall through */ }
+  return null;
+}
+
+export { SUPABASE_URL, SUPABASE_ANON };
+
 // The CORS header list every proxy should allow, now including Authorization.
 export const ALLOW_HEADERS = "Content-Type, x-spiewnik-pass, Authorization";
