@@ -20,17 +20,46 @@
 //  A request may also override the provider with {provider:"google"} in the body.
 // ============================================================================
 
-import { authorized, ALLOW_HEADERS } from "./_auth.js";
+import { authorized, getUser, ALLOW_HEADERS, SUPABASE_URL, SUPABASE_ANON } from "./_auth.js";
+
+// How many translations a signed-in person may run on the SHARED key before
+// they're asked to add their own. One-line change if you want it stricter.
+const FREE_LIMIT = 3;
+
+// Read a user's profile row (their own DeepL key + how much trial they've used).
+async function getProfile(user) {
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}&select=deepl_key,trial_used`,
+      { headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${user.token}` } });
+    if (!r.ok) return null;
+    const a = await r.json();
+    return a[0] || null;
+  } catch { return null; }
+}
+// Record one more shared-key translation for this user (upsert their profile).
+async function bumpTrial(user, n) {
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
+      method: "POST",
+      headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${user.token}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
+      body: JSON.stringify([{ id: user.id, trial_used: n, updated_at: new Date().toISOString() }]),
+    });
+  } catch { /* best effort */ }
+}
 
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*"); // tighten to your domain in production
+  res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", ALLOW_HEADERS);
   if (req.method === "OPTIONS") return res.status(204).end();
-  if (!(await authorized(req))) return res.status(401).json({ error: "Unauthorized" });
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
 
-  // Body may arrive parsed (Vercel) or as a raw string.
+  // Legacy passphrase → unlimited shared key. Otherwise a signed-in user.
+  const PASS = process.env.APP_PASSPHRASE;
+  const passOk = PASS && req.headers["x-spiewnik-pass"] === PASS;
+  const user = passOk ? null : await getUser(req);
+  if (!passOk && !user) return res.status(401).json({ error: "Unauthorized" });
+
   let body = req.body;
   if (typeof body === "string") { try { body = JSON.parse(body); } catch { body = {}; } }
   const lines = Array.isArray(body?.lines) ? body.lines : null;
@@ -41,30 +70,52 @@ export default async function handler(req, res) {
   if (!lines) return res.status(400).json({ error: "Send { lines: string[] }." });
   if (lines.length > 200) return res.status(400).json({ error: "Too many lines in one request (max 200)." });
 
-  // Only translate non-empty lines; remember where the blanks were.
+  // Decide which key to use and whether the free trial allows this call.
+  let prof = null, personalKey = null;
+  if (user) {
+    prof = await getProfile(user);
+    if (prof && prof.deepl_key && provider !== "google") personalKey = prof.deepl_key;
+    if (!personalKey) {
+      const used = prof?.trial_used || 0;
+      if (used >= FREE_LIMIT) {
+        return res.status(402).json({
+          error: "trial_exhausted",
+          message: "You've used your free translations. Add your own free DeepL key to keep translating.",
+          limit: FREE_LIMIT,
+        });
+      }
+    }
+  }
+
   const idx = [];
   const payload = [];
   lines.forEach((l, i) => { if (l && l.trim()) { idx.push(i); payload.push(l); } });
-
   if (payload.length === 0) return res.status(200).json({ provider, translations: lines.map(() => "") });
 
   try {
     const out = provider === "google"
       ? await viaGoogle(payload, source, target)
-      : await viaDeepL(payload, source, target);
+      : await viaDeepL(payload, source, target, personalKey);
 
-    // Re-expand to the original line positions, keeping blanks as "".
     const translations = lines.map(() => "");
     idx.forEach((pos, k) => { translations[pos] = out[k] ?? ""; });
-    return res.status(200).json({ provider, translations });
+
+    // Charge the trial only for a successful shared-key translation.
+    let trialRemaining = null;
+    if (user && !personalKey) {
+      const n = (prof?.trial_used || 0) + 1;
+      await bumpTrial(user, n);
+      trialRemaining = Math.max(0, FREE_LIMIT - n);
+    }
+    return res.status(200).json({ provider, translations, trialRemaining, usedOwnKey: !!personalKey });
   } catch (e) {
     return res.status(502).json({ error: e.message || "Translation request failed.", provider });
   }
 }
 
 // ---- DeepL ----------------------------------------------------------------
-async function viaDeepL(texts, source, target) {
-  const key = process.env.DEEPL_API_KEY;
+async function viaDeepL(texts, source, target, keyOverride) {
+  const key = keyOverride || process.env.DEEPL_API_KEY;
   if (!key) throw new Error("DEEPL_API_KEY is not set on the server.");
   // Free keys end in ":fx" and use the free host; paid keys use the pro host.
   const host = key.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";

@@ -54,6 +54,7 @@ const fromRow = (r) => ({
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = checking
   const [songs, setSongs] = useState([]);
+  const [profile, setProfile] = useState(null); // { deepl_key, trial_used } or null
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("list"); // list | add | reader | edit | practice
   const [curId, setCurId] = useState(null);
@@ -84,7 +85,23 @@ export default function App() {
     if (!error && data) setSongs(data.map(fromRow));
     setLoading(false);
   }
-  useEffect(() => { if (session) loadSongs(); else { setSongs([]); setLoading(false); } }, [session?.user?.id]);
+  async function loadProfile() {
+    const { data } = await supabase.from("profiles").select("deepl_key,trial_used").eq("id", session.user.id).maybeSingle();
+    setProfile(data || null);
+  }
+  useEffect(() => {
+    if (session) { loadSongs(); loadProfile(); }
+    else { setSongs([]); setProfile(null); setLoading(false); }
+  }, [session?.user?.id]);
+
+  async function saveDeeplKey(key) {
+    const { error } = await supabase.from("profiles").upsert({ id: session.user.id, deepl_key: key || null, updated_at: new Date().toISOString() });
+    if (error) { flash("Couldn't save key: " + error.message); return false; }
+    await loadProfile();
+    flash(key ? "Your DeepL key is saved" : "Key removed");
+    return true;
+  }
+  const hasOwnKey = !!(profile && profile.deepl_key);
 
   useEffect(() => { try { localStorage.setItem(PROVIDER_KEY, provider); } catch {} }, [provider]);
 
@@ -154,8 +171,12 @@ export default function App() {
           onImport={importOld}
           onOpen={(id) => { setCurId(id); setView("reader"); }}
           onAdd={() => setView("add")}
+          onSettings={() => setView("settings")}
           onSignOut={() => supabase.auth.signOut()}
         />
+      )}
+      {view === "settings" && (
+        <Settings profile={profile} hasOwnKey={hasOwnKey} onSave={saveDeeplKey} onBack={() => setView("list")} />
       )}
       {view === "add" && <AddSong onBack={() => setView("list")} onCreate={createSong} />}
       {view === "reader" && cur && (
@@ -165,6 +186,7 @@ export default function App() {
       {view === "practice" && cur && <Practice song={cur} onBack={() => setView("reader")} />}
       {view === "edit" && cur && (
         <Editor song={cur} provider={provider} setProvider={setProvider}
+          hasOwnKey={hasOwnKey} onSaveKey={saveDeeplKey}
           onBack={() => setView("reader")}
           onSave={(patch) => { saveSong(patch); setView("reader"); flash("Saved"); }}
           onRemove={() => removeSong(cur.id)} flash={flash} />
@@ -244,7 +266,7 @@ function Auth({ flash }) {
 }
 
 // ---- Library list -----------------------------------------------------------
-function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, onSignOut }) {
+function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, onSettings, onSignOut }) {
   // Group by language, then show the artist on each row.
   const groups = [];
   songs.forEach((s) => {
@@ -259,7 +281,10 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, o
       <div className="top">
         <div className="toprow">
           <div className="eyebrow">Your song library</div>
-          <button className="signout" onClick={onSignOut}>Sign out</button>
+          <div className="topbtns">
+            <button className="signout" onClick={onSettings}>Settings</button>
+            <button className="signout" onClick={onSignOut}>Sign out</button>
+          </div>
         </div>
         <h1>Śpiewnik</h1>
         <p>{songs.length === 0
@@ -391,6 +416,41 @@ function AddSong({ onBack, onCreate }) {
             </div>
           </>
         )}
+      </div>
+    </>
+  );
+}
+
+// ---- Settings (your own DeepL key) -----------------------------------------
+function Settings({ profile, hasOwnKey, onSave, onBack }) {
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const used = profile?.trial_used || 0;
+  const save = async () => { if (!key.trim() || busy) return; setBusy(true); const ok = await onSave(key.trim()); setBusy(false); if (ok) setKey(""); };
+  const remove = async () => { setBusy(true); await onSave(""); setBusy(false); };
+  return (
+    <>
+      <div className="rbar">
+        <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
+        <div className="ttl"><h2>Settings</h2><p>Your translation key</p></div>
+      </div>
+      <div className="editor">
+        <div className="setcard">
+          <h3>Your DeepL key</h3>
+          {hasOwnKey ? (
+            <p className="setstate ok">✓ Your own DeepL key is set. Your translations run on it, with no limit.</p>
+          ) : (
+            <p className="setstate">You're on the shared key — {used} free translation{used === 1 ? "" : "s"} used. Add your own free key to translate without limit, on your own quota.</p>
+          )}
+          <input type="password" value={key} placeholder={hasOwnKey ? "Enter a new key to replace it" : "Paste your DeepL API key"}
+            onChange={(e) => setKey(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
+          <div className="setbtns">
+            <button className="save" onClick={save} disabled={busy || !key.trim()}>{busy ? "Saving…" : "Save key"}</button>
+            {hasOwnKey && <button className="cancel" onClick={remove} disabled={busy}>Remove</button>}
+          </div>
+          <a className="findbtn" href="https://www.deepl.com/pro-api" target="_blank" rel="noreferrer">Get a free DeepL key ↗</a>
+          <p className="hint2">Free DeepL keys give 500,000 characters a month — plenty for lyrics. Your key is stored privately in your account and only ever used for your own translations.</p>
+        </div>
       </div>
     </>
   );
@@ -614,7 +674,7 @@ function Practice({ song, onBack }) {
 }
 
 // ---- Editor -----------------------------------------------------------------
-function Editor({ song, provider, setProvider, onBack, onSave, onRemove, flash }) {
+function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, onBack, onSave, onRemove, flash }) {
   const [title, setTitle] = useState(song.title);
   const [artist, setArtist] = useState(song.artist || "");
   const [language, setLanguage] = useState(song.language || "Polish");
@@ -622,6 +682,9 @@ function Editor({ song, provider, setProvider, onBack, onSave, onRemove, flash }
   const [en, setEn] = useState(song.en || "");
   const [busy, setBusy] = useState(false);
   const [fetching, setFetching] = useState(false);
+  const [trialOut, setTrialOut] = useState(false);
+  const [keyInput, setKeyInput] = useState("");
+  const [savingKey, setSavingKey] = useState(false);
 
   // Try to pull the original lyric automatically (lyrics.ovh via /api/lyrics).
   // `auto` = called silently on open; otherwise it's the button, which reports.
@@ -656,15 +719,28 @@ function Editor({ song, provider, setProvider, onBack, onSave, onRemove, flash }
         method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
         body: JSON.stringify({ lines, source: langOf(language).code, target: "EN", provider }),
       });
+      if (r.status === 402) { setTrialOut(true); setBusy(false); return; } // free trial used up
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Translation failed");
       setEn((j.translations || []).join("\n"));
-      flash(`Translated with ${j.provider === "google" ? "Google" : "DeepL"} — check it over`);
+      if (j.usedOwnKey) flash("Translated with your DeepL key — check it over");
+      else if (typeof j.trialRemaining === "number") flash(j.trialRemaining > 0
+        ? `Translated — ${j.trialRemaining} free translation${j.trialRemaining === 1 ? "" : "s"} left`
+        : "Translated — that was your last free one. Add your own key to carry on.");
+      else flash(`Translated with ${j.provider === "google" ? "Google" : "DeepL"} — check it over`);
     } catch (e) {
       flash("Couldn't translate: " + e.message);
     } finally {
       setBusy(false);
     }
+  }
+
+  async function saveKeyAndRetry() {
+    if (!keyInput.trim() || savingKey) return;
+    setSavingKey(true);
+    const ok = await onSaveKey(keyInput.trim());
+    setSavingKey(false);
+    if (ok) { setTrialOut(false); setKeyInput(""); autoTranslate(); }
   }
 
   const findUrl = "https://www.google.com/search?q=" + encodeURIComponent(`${artist} ${title || ""} ${language === "Polish" ? "tekst" : "lyrics"}`.trim());
@@ -707,6 +783,17 @@ function Editor({ song, provider, setProvider, onBack, onSave, onRemove, flash }
             </div>
           </div>
         </div>
+        {trialOut && !hasOwnKey && (
+          <div className="upsell">
+            <h4>Free translations used up</h4>
+            <p>You've used the shared translations. Add your own free DeepL key to keep going — it takes a couple of minutes and gives 500,000 characters a month.</p>
+            <a className="findbtn" href="https://www.deepl.com/pro-api" target="_blank" rel="noreferrer">Get a free DeepL key ↗</a>
+            <div className="upsellrow">
+              <input type="password" value={keyInput} placeholder="Paste your DeepL key" onChange={(e) => setKeyInput(e.target.value)} />
+              <button className="tr" onClick={saveKeyAndRetry} disabled={savingKey || !keyInput.trim()}>{savingKey ? "…" : "Save & translate"}</button>
+            </div>
+          </div>
+        )}
         <p className="hint2">Auto-translate goes line-for-line, so the columns stay aligned. Machine translation is a rough first draft — fixing it by hand is where the learning is.</p>
         <div className="actions">
           <button className="save" onClick={() => onSave({ title: title.trim() || song.title, artist: artist.trim(), language, pl, en })}>Save</button>
@@ -732,7 +819,16 @@ const CSS = `
 .splash{ margin:auto; font-family:var(--display); font-weight:900; font-size:26px; color:#f3ede1; opacity:.8; }
 .top{ padding:22px 20px 16px; border-bottom:1px solid var(--line); }
 .toprow{ display:flex; align-items:center; justify-content:space-between; }
+.topbtns{ display:flex; gap:8px; }
 .signout{ background:var(--night-2); border:1px solid var(--line); color:var(--mist-dim); border-radius:9px; padding:6px 12px; font-size:12px; font-family:var(--ui); cursor:pointer; }
+.setcard{ background:var(--night-2); border:1px solid var(--line); border-radius:14px; padding:18px; }
+.setcard h3{ margin:0 0 10px; font-family:var(--display); font-weight:600; font-size:18px; color:#f0ebe0; }
+.setstate{ font-size:13px; color:var(--mist-dim); line-height:1.5; margin:0 0 14px; } .setstate.ok{ color:#8fd49a; }
+.setbtns{ display:flex; gap:10px; margin-top:12px; }
+.upsell{ background:var(--night-2); border:1px solid var(--rose); border-radius:14px; padding:16px; margin-top:16px; }
+.upsell h4{ margin:0 0 6px; font-family:var(--display); font-weight:600; font-size:16px; color:#f0ebe0; }
+.upsell p{ margin:0 0 12px; font-size:13px; color:var(--mist-dim); line-height:1.5; }
+.upsellrow{ display:flex; gap:8px; margin-top:12px; } .upsellrow input{ flex:1; }
 .eyebrow{ font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--rose); font-weight:600; }
 .top h1{ font-family:var(--display); font-weight:900; font-size:30px; letter-spacing:-.02em; color:#f3ede1; margin:4px 0 0; line-height:1.02; }
 .top p{ margin:7px 0 0; font-size:13px; color:var(--mist-dim); }
