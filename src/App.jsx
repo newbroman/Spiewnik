@@ -106,18 +106,19 @@ export default function App() {
     const { error } = await supabase.from("profiles").upsert({ id: session.user.id, deepl_key: key || null, updated_at: new Date().toISOString() });
     if (error) { flash("Couldn't save key: " + error.message); return false; }
     await loadProfile();
-    flash(key ? "Your DeepL key is saved" : "Key removed");
+    flash(key ? t("tKeySaved") : t("tKeyRemoved"));
     return true;
   }
   async function saveTargetLang(name) {
     const { error } = await supabase.from("profiles").upsert({ id: session.user.id, target_lang: name, updated_at: new Date().toISOString() });
     if (error) { flash("Couldn't save: " + error.message); return false; }
     await loadProfile();
-    flash(`Translations will be into ${name}`);
+    flash(makeT(name)("tTargetSet", { name })); // confirm in the newly chosen language
     return true;
   }
   const hasOwnKey = !!(profile && profile.deepl_key);
   const targetLang = (profile && profile.target_lang) || "English";
+  const t = makeT(targetLang); // for toasts fired from App
 
   useEffect(() => { try { localStorage.setItem(PROVIDER_KEY, provider); } catch {} }, [provider]);
 
@@ -168,7 +169,7 @@ export default function App() {
     setSongs((prev) => prev.filter((s) => s.id !== id));
     setView("list");
     const { error } = await supabase.from("songs").delete().eq("id", id);
-    flash(error ? "Couldn't remove: " + error.message : "Song removed");
+    flash(error ? "Couldn't remove: " + error.message : t("tSongRemoved"));
   }
 
   if (session === undefined) {
@@ -209,7 +210,7 @@ export default function App() {
         <Editor song={cur} provider={provider} setProvider={setProvider}
           hasOwnKey={hasOwnKey} onSaveKey={saveDeeplKey} targetLang={targetLang}
           onBack={() => setView("reader")}
-          onSave={(patch) => { saveSong(patch); setView("reader"); flash("Saved"); }}
+          onSave={(patch) => { saveSong(patch); setView("reader"); flash(t("tSaved")); }}
           onRemove={() => removeSong(cur.id)} flash={flash} />
       )}
       <Toast toast={toast} />
@@ -760,7 +761,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
   // Try to pull the original lyric automatically (lyrics.ovh via /api/lyrics).
   // `auto` = called silently on open; otherwise it's the button, which reports.
   async function fetchLyrics(auto) {
-    if (!title.trim() || !artist.trim()) { if (!auto) flash("Add the artist and title first"); return; }
+    if (!title.trim() || !artist.trim()) { if (!auto) flash(t("tAddArtistFirst")); return; }
     setFetching(true);
     try {
       const r = await fetch(`/api/lyrics?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`, { headers: apiHeaders() });
@@ -768,9 +769,9 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
       if (!r.ok) throw new Error(j.error || "Lookup failed");
       if (j.lyrics && j.lyrics.trim()) {
         setPl((cur) => (cur && cur.trim() ? cur : j.lyrics.trim())); // never clobber typed text
-        if (!auto) flash("Lyrics found — check them over, then Auto-translate");
+        if (!auto) flash(t("tLyricsFound"));
       } else if (!auto) {
-        flash("No lyrics found automatically — use Find or paste them in");
+        flash(t("tLyricsNone"));
       }
     } catch (e) {
       if (!auto) flash("Lyric lookup failed: " + e.message);
@@ -783,7 +784,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
 
   async function autoTranslate() {
     const lines = pl.split("\n");
-    if (!pl.trim()) { flash("Paste the original lyrics first"); return; }
+    if (!pl.trim()) { flash(t("tPasteFirst")); return; }
     setBusy(true);
     try {
       const r = await fetch("/api/translate", {
@@ -794,11 +795,11 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Translation failed");
       setEn((j.translations || []).join("\n"));
-      if (j.usedOwnKey) flash("Translated with your DeepL key — check it over");
+      if (j.usedOwnKey) flash(t("tTranslated"));
       else if (typeof j.trialRemaining === "number") flash(j.trialRemaining > 0
-        ? `Translated — ${j.trialRemaining} free translation${j.trialRemaining === 1 ? "" : "s"} left`
-        : "Translated — that was your last free one. Add your own key to carry on.");
-      else flash(`Translated with ${j.provider === "google" ? "Google" : "DeepL"} — check it over`);
+        ? t("tTrLeft", { n: j.trialRemaining })
+        : t("tTrLast"));
+      else flash(t("tTranslated"));
     } catch (e) {
       flash("Couldn't translate: " + e.message);
     } finally {
