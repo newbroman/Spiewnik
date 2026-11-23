@@ -130,7 +130,7 @@ export default function App() {
       <style>{CSS}</style>
       <div className="app">
         {view === "list" && <ListView songs={songs} onOpen={open} onAdd={addSong} />}
-        {view === "reader" && cur && <Reader song={cur} onBack={() => setView("list")} onEdit={() => edit(cur.id)} onPractice={() => setView("practice")} onFoundSpotify={(id) => saveSong({ spotifyId: id })} />}
+        {view === "reader" && cur && <Reader song={cur} onBack={() => setView("list")} onEdit={() => edit(cur.id)} onPractice={() => setView("practice")} onFoundVideo={(id) => saveSong({ youtubeId: id })} />}
         {view === "practice" && cur && <Practice song={cur} onBack={() => setView("reader")} />}
         {view === "edit" && cur && (
           <Editor
@@ -183,33 +183,33 @@ function ListView({ songs, onOpen, onAdd }) {
   );
 }
 
-function Reader({ song, onBack, onEdit, onPractice, onFoundSpotify }) {
+function Reader({ song, onBack, onEdit, onPractice, onFoundVideo }) {
   const pl = (song.pl || "").split("\n");
   const en = (song.en || "").split("\n");
   const n = Math.max(pl.length, en.length);
   const has = song.pl && song.pl.trim();
-  const [spotify, setSpotify] = useState(song.spotifyId || null);
+  const [yt, setYt] = useState(song.youtubeId || null);
 
-  // Resolve the song on Spotify once (via /api/spotify), then remember the id.
+  // Resolve the song on YouTube once (via /api/youtube), then remember the id.
   useEffect(() => {
     let active = true;
-    setSpotify(song.spotifyId || null);
-    if (song.spotifyId || song.example) return; // already found, or the demo text
+    setYt(song.youtubeId || null);
+    if (song.youtubeId || song.example) return; // already found, or the demo text
     (async () => {
       try {
-        const r = await fetch(`/api/spotify?title=${encodeURIComponent(song.title)}&artist=${encodeURIComponent(ARTIST)}`);
+        const r = await fetch(`/api/youtube?title=${encodeURIComponent(song.title)}&artist=${encodeURIComponent(ARTIST)}`);
         if (!r.ok || !active) return; // not set up yet / error — leave the player hidden
         const j = await r.json();
         if (!active) return;
         const id = j && j.id ? j.id : "none"; // "none" = looked up, no match — don't retry
-        setSpotify(id);
-        onFoundSpotify(id);
+        setYt(id);
+        onFoundVideo(id);
       } catch { /* leave the player hidden */ }
     })();
     return () => { active = false; };
   }, [song.id]);
 
-  const showPlayer = spotify && spotify !== "none";
+  const showPlayer = yt && yt !== "none";
   return (
     <>
       <div className="rbar">
@@ -219,12 +219,12 @@ function Reader({ song, onBack, onEdit, onPractice, onFoundSpotify }) {
         <button className="icbtn accent" onClick={onEdit}>Edit</button>
       </div>
       {showPlayer && (
-        <div className="spotwrap">
+        <div className="ytwrap">
           <iframe
-            className="spotify" title="Spotify player"
-            src={`https://open.spotify.com/embed/track/${spotify}`}
-            width="100%" height="152" loading="lazy"
-            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+            className="yt" title="YouTube player"
+            src={`https://www.youtube.com/embed/${yt}?rel=0`}
+            loading="lazy" allowFullScreen
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           />
         </div>
       )}
@@ -450,8 +450,8 @@ const CSS = `
 .icbtn{ background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:10px; height:38px; min-width:38px; padding:0 12px; cursor:pointer; font-size:14px; font-family:var(--ui); line-height:1; }
 .icbtn.accent{ background:var(--rose); border-color:var(--rose); color:#20140f; font-weight:600; }
 .rbar .ttl{ flex:1; min-width:0; } .rbar .ttl h2{ margin:0; font-family:var(--display); font-weight:900; font-size:19px; color:#f3ede1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .rbar .ttl p{ margin:2px 0 0; font-size:12px; color:var(--mist-dim); }
-.spotwrap{ padding:14px 16px 0; }
-.spotify{ display:block; width:100%; border:0; border-radius:12px; }
+.ytwrap{ padding:14px 16px 0; }
+.yt{ display:block; width:100%; aspect-ratio:16/9; border:0; border-radius:12px; background:#000; }
 .sheet{ background:var(--paper); margin:16px; border-radius:16px; padding:8px 4px 20px; box-shadow:0 18px 50px rgba(0,0,0,.35); }
 .sheethead{ display:grid; grid-template-columns:1fr 1fr; padding:12px 8px 10px; }
 .sheethead span{ font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:#a99a82; font-weight:600; padding:0 14px; } .sheethead span+span{ border-left:1px solid var(--rule); }
