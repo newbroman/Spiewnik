@@ -11,24 +11,39 @@ import React, { useEffect, useState } from "react";
 //  the translation service you configure.
 // ============================================================================
 
-// Her real song titles (public facts). You paste the lyrics yourself.
+// Her song titles (public facts), from her catalogue. You paste the lyrics yourself.
 const SEED = [
-  { album: "Tu była (2023)", songs: ["Troja z chemii", "Gorączka", "Houston", "Wróć", "Chinatown", "Gambino", "Dziewczyna z tatuażem", "Falstart albo faul"] },
-  { album: "Single", songs: ["Aureola", "Trudno jest być sobą", "Feelings"] },
+  { album: "Songs", songs: [
+    "A może jeszcze się da", "Aureola", "Chinatown", "Ciężki plecak",
+    "Co Tam Jak Się Masz", "Duch", "Dziewczyna z tatuażem", "Falstart albo faul",
+    "Gambino", "Gorączka", "Houston", "Kill Bill", "Mainstream", "Miłość itd.",
+    "Nie masz sił to płacz", "Pamięć do złych słów ft. Kortez", "Patrz patrz",
+    "Plastelina", "Skacz ze mną na bombę ft. Małpa", "Tańcz", "Taras",
+    "To nie zabawa", "Trója z chemii", "Trudno jest być sobą", "Wariatka!", "Wróć",
+  ] },
 ];
 const ARTIST = "Daria ze Śląska";
 const KEY = "spiewnik.sidebyside.v1";
 const PROVIDER_KEY = "spiewnik.provider.v1";
 
+// Compare titles ignoring case and accents, so "Troja"/"Trója" don't double up.
+const norm = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+
 function seed() {
   const songs = [];
   let n = 0;
-  SEED.forEach((g) => g.songs.forEach((t) => songs.push({ id: "s" + n++, title: t, album: g.album, pl: "", en: "" })));
+  SEED.forEach((g) => g.songs.forEach((t) => songs.push({ id: "seed-" + n++, title: t, album: g.album, pl: "", en: "" })));
   return songs;
 }
 function loadSongs() {
-  try { const r = JSON.parse(localStorage.getItem(KEY)); if (Array.isArray(r?.songs)) return r.songs; } catch {}
-  return seed();
+  let stored = null;
+  try { const r = JSON.parse(localStorage.getItem(KEY)); if (Array.isArray(r?.songs)) stored = r.songs; } catch {}
+  if (!stored) return seed();
+  // Merge in any catalogue songs the saved list doesn't have yet, without
+  // touching lyrics the user already added.
+  const have = new Set(stored.map((s) => norm(s.title)));
+  const additions = seed().filter((s) => !have.has(norm(s.title)));
+  return additions.length ? [...stored, ...additions] : stored;
 }
 function saveSongs(songs) { try { localStorage.setItem(KEY, JSON.stringify({ songs })); } catch {} }
 const esc = (s) => s || "";
