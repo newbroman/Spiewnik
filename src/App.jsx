@@ -130,7 +130,7 @@ export default function App() {
       <style>{CSS}</style>
       <div className="app">
         {view === "list" && <ListView songs={songs} onOpen={open} onAdd={addSong} />}
-        {view === "reader" && cur && <Reader song={cur} onBack={() => setView("list")} onEdit={() => edit(cur.id)} onPractice={() => setView("practice")} onFoundVideo={(id) => saveSong({ youtubeId: id })} />}
+        {view === "reader" && cur && <Reader song={cur} onBack={() => setView("list")} onEdit={() => edit(cur.id)} onPractice={() => setView("practice")} onFoundMedia={(patch) => saveSong(patch)} />}
         {view === "practice" && cur && <Practice song={cur} onBack={() => setView("reader")} />}
         {view === "edit" && cur && (
           <Editor
@@ -183,33 +183,46 @@ function ListView({ songs, onOpen, onAdd }) {
   );
 }
 
-function Reader({ song, onBack, onEdit, onPractice, onFoundVideo }) {
+const PLAYER_KEY = "spiewnik.player.v1";
+
+function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
   const pl = (song.pl || "").split("\n");
   const en = (song.en || "").split("\n");
   const n = Math.max(pl.length, en.length);
   const has = song.pl && song.pl.trim();
-  const [yt, setYt] = useState(song.youtubeId || null);
+  const [yt, setYt] = useState(song.youtubeId ?? undefined);
+  const [sp, setSp] = useState(song.spotifyId ?? undefined);
+  const [source, setSource] = useState(() => { try { return localStorage.getItem(PLAYER_KEY) || "youtube"; } catch { return "youtube"; } });
 
-  // Resolve the song on YouTube once (via /api/youtube), then remember the id.
+  // Resolve the song on YouTube and Spotify once each, then remember the ids.
+  // A source with its key not set on the server just stays hidden.
   useEffect(() => {
     let active = true;
-    setYt(song.youtubeId || null);
-    if (song.youtubeId || song.example) return; // already found, or the demo text
-    (async () => {
+    setYt(song.youtubeId ?? undefined);
+    setSp(song.spotifyId ?? undefined);
+    if (song.example) return;
+    const resolve = async (api, cached, setter, field) => {
+      if (cached !== undefined && cached !== null) return; // already looked up (id or "none")
       try {
-        const r = await fetch(`/api/youtube?title=${encodeURIComponent(song.title)}&artist=${encodeURIComponent(ARTIST)}`);
-        if (!r.ok || !active) return; // not set up yet / error — leave the player hidden
+        const r = await fetch(`${api}?title=${encodeURIComponent(song.title)}&artist=${encodeURIComponent(ARTIST)}`);
+        if (!r.ok || !active) return;
         const j = await r.json();
         if (!active) return;
-        const id = j && j.id ? j.id : "none"; // "none" = looked up, no match — don't retry
-        setYt(id);
-        onFoundVideo(id);
-      } catch { /* leave the player hidden */ }
-    })();
+        const id = j && j.id ? j.id : "none";
+        setter(id);
+        onFoundMedia({ [field]: id });
+      } catch { /* leave hidden */ }
+    };
+    resolve("/api/youtube", song.youtubeId, setYt, "youtubeId");
+    resolve("/api/spotify", song.spotifyId, setSp, "spotifyId");
     return () => { active = false; };
   }, [song.id]);
 
-  const showPlayer = yt && yt !== "none";
+  const ytOk = yt && yt !== "none";
+  const spOk = sp && sp !== "none";
+  const avail = [ytOk && "youtube", spOk && "spotify"].filter(Boolean);
+  const eff = avail.includes(source) ? source : avail[0];
+  const pick = (s) => { setSource(s); try { localStorage.setItem(PLAYER_KEY, s); } catch {} };
   return (
     <>
       <div className="rbar">
@@ -218,14 +231,29 @@ function Reader({ song, onBack, onEdit, onPractice, onFoundVideo }) {
         {has ? <button className="icbtn" onClick={onPractice}>Practice</button> : null}
         <button className="icbtn accent" onClick={onEdit}>Edit</button>
       </div>
-      {showPlayer && (
-        <div className="ytwrap">
-          <iframe
-            className="yt" title="YouTube player"
-            src={`https://www.youtube.com/embed/${yt}?rel=0`}
-            loading="lazy" allowFullScreen
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          />
+      {avail.length > 0 && (
+        <div className="playerbox">
+          {avail.length > 1 && (
+            <div className="srctoggle">
+              <button className={eff === "youtube" ? "on" : ""} onClick={() => pick("youtube")}>YouTube</button>
+              <button className={eff === "spotify" ? "on" : ""} onClick={() => pick("spotify")}>Spotify</button>
+            </div>
+          )}
+          {eff === "youtube" ? (
+            <iframe
+              className="yt" title="YouTube player"
+              src={`https://www.youtube.com/embed/${yt}?rel=0`}
+              loading="lazy" allowFullScreen
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            />
+          ) : (
+            <iframe
+              className="spotify" title="Spotify player"
+              src={`https://open.spotify.com/embed/track/${sp}`}
+              width="100%" height="152" loading="lazy"
+              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+            />
+          )}
         </div>
       )}
       <div className="sheet">
@@ -450,8 +478,12 @@ const CSS = `
 .icbtn{ background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:10px; height:38px; min-width:38px; padding:0 12px; cursor:pointer; font-size:14px; font-family:var(--ui); line-height:1; }
 .icbtn.accent{ background:var(--rose); border-color:var(--rose); color:#20140f; font-weight:600; }
 .rbar .ttl{ flex:1; min-width:0; } .rbar .ttl h2{ margin:0; font-family:var(--display); font-weight:900; font-size:19px; color:#f3ede1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .rbar .ttl p{ margin:2px 0 0; font-size:12px; color:var(--mist-dim); }
-.ytwrap{ padding:14px 16px 0; }
+.playerbox{ padding:14px 16px 0; }
+.srctoggle{ display:flex; gap:6px; margin-bottom:9px; }
+.srctoggle button{ background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:8px; padding:6px 13px; font-size:12px; font-family:var(--ui); font-weight:500; cursor:pointer; }
+.srctoggle button.on{ background:var(--rose); border-color:var(--rose); color:#20140f; }
 .yt{ display:block; width:100%; aspect-ratio:16/9; border:0; border-radius:12px; background:#000; }
+.spotify{ display:block; width:100%; border:0; border-radius:12px; }
 .sheet{ background:var(--paper); margin:16px; border-radius:16px; padding:8px 4px 20px; box-shadow:0 18px 50px rgba(0,0,0,.35); }
 .sheethead{ display:grid; grid-template-columns:1fr 1fr; padding:12px 8px 10px; }
 .sheethead span{ font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:#a99a82; font-weight:600; padding:0 14px; } .sheethead span+span{ border-left:1px solid var(--rule); }
