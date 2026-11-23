@@ -25,6 +25,12 @@ const SEED = [
 const ARTIST = "Daria ze Śląska";
 const KEY = "spiewnik.sidebyside.v1";
 const PROVIDER_KEY = "spiewnik.provider.v1";
+const PASS_KEY = "spiewnik.pass.v1";
+
+// Send the saved passphrase with every backend call. The server rejects calls
+// without it (401) once a passphrase is configured, so content stays private.
+const getPass = () => { try { return localStorage.getItem(PASS_KEY) || ""; } catch { return ""; } };
+const authHeaders = () => { const p = getPass(); return p ? { "x-spiewnik-pass": p } : {}; };
 
 // Compare titles ignoring case and accents, so "Troja"/"Trója" don't double up.
 const norm = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
@@ -72,31 +78,44 @@ export default function App() {
   const [curId, setCurId] = useState(null);
   const [provider, setProvider] = useState(() => { try { return localStorage.getItem(PROVIDER_KEY) || "deepl"; } catch { return "deepl"; } });
   const [toast, setToast] = useState("");
+  const [locked, setLocked] = useState(null); // null = checking, true = needs passphrase, false = open
 
   const syncedRef = useRef(false);
   const pushTimer = useRef(null);
   const pushServer = (list) => {
     clearTimeout(pushTimer.current);
     pushTimer.current = setTimeout(() => {
-      fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ songs: list }) }).catch(() => {});
+      fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ songs: list }) }).catch(() => {});
     }, 600);
   };
 
-  // Pull the shared lyrics once, merge them with whatever is on this device,
-  // then keep pushing changes up. Falls back to local-only if the store is off.
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await fetch("/api/data");
-        if (r.ok) {
-          const j = await r.json();
-          if (Array.isArray(j.songs)) setSongs((prev) => mergeByTitle(j.songs, prev));
-        }
-      } catch {}
-      syncedRef.current = true;
-      setSongs((prev) => { pushServer(prev); return prev; }); // seed the store from this device
-    })();
-  }, []);
+  // Pull the shared lyrics, merge with this device, then keep pushing changes.
+  // If the server needs a passphrase (401), show the lock; if the store is off
+  // or offline, fall back to local-only.
+  async function syncInit() {
+    try {
+      const r = await fetch("/api/data", { headers: authHeaders() });
+      if (r.status === 401) { setLocked(true); return; }
+      setLocked(false);
+      if (r.ok) {
+        const j = await r.json();
+        if (Array.isArray(j.songs)) setSongs((prev) => mergeByTitle(j.songs, prev));
+      }
+    } catch { setLocked(false); }
+    syncedRef.current = true;
+    setSongs((prev) => { pushServer(prev); return prev; }); // seed the store from this device
+  }
+  useEffect(() => { syncInit(); }, []);
+
+  async function unlock(pass) {
+    try {
+      const r = await fetch("/api/data", { headers: { "x-spiewnik-pass": pass } });
+      if (r.status === 401) return false;
+      try { localStorage.setItem(PASS_KEY, pass); } catch {}
+      await syncInit();
+      return true;
+    } catch { return false; }
+  }
 
   useEffect(() => {
     saveSongs(songs);
@@ -125,6 +144,8 @@ export default function App() {
     flash("Song removed");
   }
 
+  if (locked === true) return <LockScreen onUnlock={unlock} />;
+
   return (
     <div className="kl-root">
       <style>{CSS}</style>
@@ -141,6 +162,37 @@ export default function App() {
         )}
       </div>
       <div className={"kl-toast" + (toast ? " show" : "")}>{toast}</div>
+    </div>
+  );
+}
+
+function LockScreen({ onUnlock }) {
+  const [v, setV] = useState("");
+  const [err, setErr] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!v.trim() || busy) return;
+    setBusy(true); setErr(false);
+    const ok = await onUnlock(v.trim());
+    setBusy(false);
+    if (!ok) { setErr(true); setV(""); }
+  };
+  return (
+    <div className="kl-root">
+      <style>{CSS}</style>
+      <div className="app">
+        <div className="lock">
+          <div className="lockcard">
+            <div className="eyebrow">Side-by-side lyrics</div>
+            <h1>Śpiewnik</h1>
+            <p>Enter your passphrase to open your lyrics.</p>
+            <input type="password" value={v} autoFocus placeholder="Passphrase"
+              onChange={(e) => setV(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+            {err && <div className="lockerr">That passphrase didn’t match.</div>}
+            <button onClick={submit} disabled={busy}>{busy ? "Checking…" : "Unlock"}</button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -204,7 +256,7 @@ function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
     const resolve = async (api, cached, setter, field) => {
       if (cached !== undefined && cached !== null) return; // already looked up (id or "none")
       try {
-        const r = await fetch(`${api}?title=${encodeURIComponent(song.title)}&artist=${encodeURIComponent(ARTIST)}`);
+        const r = await fetch(`${api}?title=${encodeURIComponent(song.title)}&artist=${encodeURIComponent(ARTIST)}`, { headers: authHeaders() });
         if (!r.ok || !active) return;
         const j = await r.json();
         if (!active) return;
@@ -427,7 +479,7 @@ function Editor({ song, provider, setProvider, onBack, onSave, onRemove, flash }
     setBusy(true);
     try {
       const r = await fetch("/api/translate", {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ lines, source: "PL", target: "EN", provider }),
       });
       const j = await r.json();
@@ -569,6 +621,16 @@ const CSS = `
 .pracnav{ display:flex; gap:10px; justify-content:space-between; margin-top:34px; }
 .navbtn{ flex:1; background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:11px; padding:12px; font-size:14px; font-family:var(--ui); cursor:pointer; }
 .navbtn:disabled{ opacity:.4; cursor:default; }
+.lock{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+.lockcard{ width:100%; max-width:340px; text-align:center; }
+.lockcard h1{ font-family:var(--display); font-weight:900; font-size:34px; letter-spacing:-.02em; color:#f3ede1; margin:6px 0 0; }
+.lockcard .eyebrow{ font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--rose); font-weight:600; }
+.lockcard p{ color:var(--mist-dim); font-size:13.5px; margin:10px 0 18px; }
+.lockcard input{ width:100%; background:var(--night-2); border:1px solid var(--line); border-radius:12px; padding:13px 15px; color:#eef1f6; font-size:16px; outline:0; font-family:var(--ui); text-align:center; }
+.lockcard input:focus{ border-color:var(--rose); }
+.lockcard .lockerr{ color:#e8938a; font-size:12.5px; margin-top:10px; }
+.lockcard button{ margin-top:14px; width:100%; background:var(--rose); color:#20140f; border:0; border-radius:12px; padding:13px; font-weight:600; font-size:15px; font-family:var(--ui); cursor:pointer; }
+.lockcard button:disabled{ opacity:.5; cursor:default; }
 .kl-toast{ position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(10px); opacity:0; background:#2c2030; color:#f3e7e4; border:1px solid var(--rose); border-radius:11px; padding:10px 15px; font-size:12.5px; pointer-events:none; transition:opacity .2s, transform .2s; z-index:9; max-width:84%; text-align:center; }
 .kl-toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
 @media(max-width:520px){ .cell.pl{ font-size:15px; } .cell.en{ font-size:12.5px; } .editor .cols{ grid-template-columns:1fr; } .editor .meta2{ grid-template-columns:1fr; } .top h1{ font-size:26px; } }

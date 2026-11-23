@@ -28,8 +28,14 @@ async function kv(command) {
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-spiewnik-pass");
   if (req.method === "OPTIONS") return res.status(204).end();
+
+  // Passphrase gate: once APP_PASSPHRASE is set, every call must carry it.
+  const PASS = process.env.APP_PASSPHRASE;
+  if (PASS && req.headers["x-spiewnik-pass"] !== PASS) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
 
   if (!KV_URL || !KV_TOKEN) {
     return res.status(500).json({ error: "KV store not configured on the server." });

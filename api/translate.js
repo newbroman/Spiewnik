@@ -23,8 +23,10 @@
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*"); // tighten to your domain in production
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-spiewnik-pass");
   if (req.method === "OPTIONS") return res.status(204).end();
+  const PASS = process.env.APP_PASSPHRASE;
+  if (PASS && req.headers["x-spiewnik-pass"] !== PASS) return res.status(401).json({ error: "Unauthorized" });
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
 
   // Body may arrive parsed (Vercel) or as a raw string.

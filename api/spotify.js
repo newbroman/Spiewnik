@@ -33,8 +33,11 @@ async function getToken(id, secret) {
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-spiewnik-pass");
   if (req.method === "OPTIONS") return res.status(204).end();
+
+  const PASS = process.env.APP_PASSPHRASE;
+  if (PASS && req.headers["x-spiewnik-pass"] !== PASS) return res.status(401).json({ error: "Unauthorized" });
 
   const id = process.env.SPOTIFY_CLIENT_ID;
   const secret = process.env.SPOTIFY_CLIENT_SECRET;
