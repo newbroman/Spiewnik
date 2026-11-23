@@ -55,7 +55,8 @@ const fromRow = (r) => ({
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = checking
   const [songs, setSongs] = useState([]);
-  const [profile, setProfile] = useState(null); // { deepl_key, trial_used } or null
+  const [profile, setProfile] = useState(null); // { deepl_key, trial_used, target_lang } or null
+  const [profileLoaded, setProfileLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("list"); // list | add | reader | edit | practice
   const [curId, setCurId] = useState(null);
@@ -89,10 +90,11 @@ export default function App() {
   async function loadProfile() {
     const { data } = await supabase.from("profiles").select("deepl_key,trial_used,target_lang").eq("id", session.user.id).maybeSingle();
     setProfile(data || null);
+    setProfileLoaded(true);
   }
   useEffect(() => {
-    if (session) { loadSongs(); loadProfile(); }
-    else { setSongs([]); setProfile(null); setLoading(false); }
+    if (session) { setProfileLoaded(false); loadSongs(); loadProfile(); }
+    else { setSongs([]); setProfile(null); setProfileLoaded(false); setLoading(false); }
   }, [session?.user?.id]);
 
   async function saveDeeplKey(key) {
@@ -169,6 +171,10 @@ export default function App() {
   }
   if (session === null) {
     return <Shell><Auth flash={flash} /><Toast toast={toast} /></Shell>;
+  }
+  // Brand-new account: ask once which language to translate into.
+  if (profileLoaded && !loading && profile === null && songs.length === 0) {
+    return <Shell><Welcome onPick={saveTargetLang} /><Toast toast={toast} /></Shell>;
   }
 
   return (
@@ -270,6 +276,26 @@ function Auth({ flash }) {
         <button className="linkbtn" onClick={() => { setErr(""); setNote(""); setMode(mode === "signup" ? "signin" : "signup"); }}>
           {mode === "signup" ? "Have an account? Sign in" : "New here? Create an account"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ---- First-run welcome: pick the language to translate into ----------------
+function Welcome({ onPick }) {
+  const [lang, setLang] = useState("English");
+  const [busy, setBusy] = useState(false);
+  const go = async () => { if (busy) return; setBusy(true); await onPick(lang); };
+  return (
+    <div className="lock">
+      <div className="lockcard">
+        <div className="eyebrow">Welcome to Śpiewnik</div>
+        <h1>One quick thing</h1>
+        <p>Which language do you want your lyrics translated into? Pick your own first language — you can change it later in Settings.</p>
+        <select className="welcomesel" value={lang} onChange={(e) => setLang(e.target.value)}>
+          {LANGS.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
+        </select>
+        <button onClick={go} disabled={busy}>{busy ? "…" : "Continue"}</button>
       </div>
     </div>
   );
@@ -956,6 +982,7 @@ const CSS = `
 .lockcard p{ color:var(--mist-dim); font-size:13.5px; margin:10px 0 18px; }
 .lockcard input{ width:100%; background:var(--night-2); border:1px solid var(--line); border-radius:12px; padding:13px 15px; color:#eef1f6; font-size:16px; outline:0; font-family:var(--ui); text-align:center; }
 .lockcard input:focus{ border-color:var(--rose); }
+.lockcard .welcomesel{ width:100%; background:var(--night-2); border:1px solid var(--line); border-radius:12px; padding:13px 15px; color:#eef1f6; font-size:16px; outline:0; font-family:var(--ui); } .lockcard .welcomesel:focus{ border-color:var(--rose); }
 .lockcard .lockerr{ color:#e8938a; font-size:12.5px; margin-top:10px; }
 .lockcard .locknote{ color:#8fd49a; font-size:12.5px; margin-top:10px; line-height:1.5; }
 .lockcard button{ margin-top:14px; width:100%; background:var(--rose); color:#20140f; border:0; border-radius:12px; padding:13px; font-weight:600; font-size:15px; font-family:var(--ui); cursor:pointer; }

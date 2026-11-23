@@ -24,7 +24,7 @@ export default defineConfig(() => {
         manifest: {
           name: "Śpiewnik",
           short_name: "Śpiewnik",
-          description: "Learn Polish through songs — side-by-side lyrics, with practice and playback.",
+          description: "Learn a language through songs — side-by-side lyrics, with practice and playback.",
           lang: "en",
           theme_color: "#1a2130",
           background_color: "#1a2130",
