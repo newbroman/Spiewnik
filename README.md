@@ -1,40 +1,80 @@
 # Śpiewnik
 
-A mobile-first React app for learning Polish through song lyrics, line by line: each Polish line sits on its own card with the English translation hidden, so you read, guess, then check yourself.
+A mobile-first web app for **learning a language through song**. Sign in and build
+your own private library of songs in any language, reading the original and a
+translation side by side, with playback, pronunciation practice, and an interface
+that follows whichever language you're learning in.
 
-This is a Vite/React app deployed to Vercel (see below), not a static GitHub Pages site, so there is no Pages link.
+Live: **https://spiewnik-seven.vercel.app**
 
-## Features
+It's a Vite/React single-page app deployed to Vercel, with a handful of serverless
+functions and a Supabase backend (accounts + database), so there is no GitHub Pages
+link.
 
-- Line-by-line reader: tap a line to reveal or hide its English translation.
-- **Reveal all** / **Hide translations** toggle to read straight through.
-- **Focus mode** dims everything except the line you are on, for stepping through a song.
-- Search for songs by title or artist; lyrics and English translations are fetched live from Musixmatch.
-- A notice is shown when the lyric returned is only a partial preview.
-- **Sample lesson**: original demo text (not a real song) so the reader can be tried with no backend.
-- Settings tab with an optional proxy URL override (normally left blank).
+## What it does
 
-## Using it
+- **Accounts, private libraries.** Each person signs in (email + password via
+  Supabase Auth) and sees only their own songs. Isolation is enforced in the
+  database with Row Level Security, not just in the UI.
+- **Any artist, any language.** The library is indexed by language and then by
+  artist. Add songs by searching (iTunes Search API) or by hand.
+- **Side-by-side study.** The original lyric and its translation sit in two
+  aligned columns, line for line.
+- **Lyrics, with less typing.** A song opens and tries to auto-fetch its lyric
+  (lyrics.ovh); a prominent **Find lyrics on Google** button (tuned to the song's
+  language) is the reliable fallback — copy from the results and paste.
+- **Auto-translate.** Line-by-line translation via DeepL (or Google), into each
+  user's chosen target language. Everyone gets a few free translations on the
+  shared key, then adds **their own free DeepL key** (stored privately in their
+  profile) to continue on their own quota.
+- **Playback.** Each song resolves on YouTube and Spotify; the player is pinned at
+  the top while the lyrics scroll underneath, with a teleprompter-style
+  adjustable auto-scroll.
+- **Pronunciation practice.** Hear each line (speech synthesis) and say it back for
+  a per-word match score (speech recognition), in the song's language.
+- **Localised interface.** The whole UI follows the user's chosen language — 20
+  languages, with English fallback (see `src/i18n.js`).
+- **Installable PWA.** Manifest + service worker, so it can be added to a home
+  screen and run full-screen.
 
-Open the deployed Vercel URL in any modern browser. It is designed for phone-sized screens. There is no service worker or manifest, so it is not an installable PWA and does not work offline. The sample lesson needs no backend, but song search needs the `/api/musixmatch` function and its API key to be configured.
+## Stack
 
-## Lyrics and copyright
-
-Song lyrics are copyrighted, so none are bundled. They are fetched at runtime from Musixmatch, a licensed lyrics provider, through a small serverless function (`api/musixmatch.js`) that keeps the API key off the client and avoids browser CORS limits. The function only allows `track.search`, `track.lyrics.get`, `track.lyrics.translation.get` and `matcher.lyrics.get`. Free Musixmatch plans return only about 30% of each lyric; full text needs a paid plan. See [SETUP.md](./SETUP.md) for the full walkthrough and troubleshooting.
+- **Vite + React** single-page app (`src/App.jsx` is the whole UI; `src/i18n.js`
+  the translations; `src/supabase.js` the client).
+- **Supabase** — Auth, Postgres, and Row Level Security. Tables: `songs`
+  (per-user songs) and `profiles` (per-user DeepL key, free-trial count, and
+  target language). The publishable/anon key ships in the client; RLS is what
+  protects the data.
+- **Vercel serverless functions** under `api/` for everything that needs a secret
+  or must avoid browser CORS.
 
 ## Project structure
 
 | Path | Purpose |
 | --- | --- |
-| `src/App.jsx` | The whole app: UI, styles, search, reader and study logic, sample lesson |
-| `src/main.jsx` | React entry point |
-| `src/index.css` | Minimal global styles |
-| `index.html` | Vite HTML entry |
-| `api/musixmatch.js` | Vercel serverless lyrics proxy (holds the API key) |
-| `vercel.json` | SPA routing: everything except `/api/` rewrites to `index.html` |
-| `vite.config.js` | Dev server, with an optional `/api` proxy via `VITE_PROXY_TARGET` |
+| `src/App.jsx` | The whole app: auth, library, reader, editor, practice, players, settings |
+| `src/i18n.js` | UI translations (20 languages) and the `makeT` helper |
+| `src/supabase.js` | Supabase client + API auth header |
+| `api/_auth.js` | Shared authorization for the proxies (Supabase session or legacy passphrase) |
+| `api/translate.js` | DeepL/Google line-by-line translation; per-user key + free-trial logic |
+| `api/search.js` | Song search (iTunes Search API) |
+| `api/lyrics.js` | Lyric auto-fetch (lyrics.ovh) |
+| `api/youtube.js` / `api/spotify.js` | Resolve a song to a YouTube video / Spotify track |
+| `api/import-daria.js` | One-time owner-only import from the old single-user store |
+| `api/data.js` | Legacy Upstash KV sync (single-user era; not used by the app now) |
+| `vite.config.js` | Dev server + PWA (manifest, service worker) |
 | `.env.example` | Template for environment variables |
-| `SETUP.md` | Musixmatch key, Vercel deployment and troubleshooting |
+
+## Environment variables
+
+Set these in the Vercel project (see the `SETUP-*.md` files for each).
+
+- `DEEPL_API_KEY`, `TRANSLATE_PROVIDER` (`deepl` or `google`), `GOOGLE_TRANSLATE_API_KEY` — translation (`SETUP-TRANSLATE.md`).
+- `YOUTUBE_API_KEY` — the inline YouTube player (`SETUP-YOUTUBE.md`).
+- `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` — the Spotify player (`SETUP-SPOTIFY.md`).
+- `SUPABASE_URL`, `SUPABASE_ANON_KEY` — optional server-side overrides; defaults match the client in `src/supabase.js`. `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` override them at build time.
+- `KV_REST_API_URL`, `KV_REST_API_TOKEN` — only for the legacy one-time import.
+- `APP_PASSPHRASE` — legacy single-user lock; leave unset for the multi-user app.
 
 ## Development
 
@@ -45,23 +85,21 @@ npm run build    # production build into dist/
 npm run preview  # serve the production build locally
 ```
 
-The reader and sample lesson work immediately. For live search locally, copy `.env.example` to `.env` and set:
-
-- `MUSIXMATCH_API_KEY`: your key from developer.musixmatch.com. Used only by the serverless function (for example under `vercel dev`), never exposed to the browser.
-- `VITE_PROXY_TARGET`: optional, local dev only. Your deployed Vercel URL (for example `https://your-project.vercel.app`); `npm run dev` then proxies `/api` to it, so no local backend is needed.
-
-Do not commit `.env`; it is git-ignored.
+Auth and data work against the hosted Supabase project out of the box. For the
+`/api/*` functions locally, point `npm run dev` at the deployed functions by
+setting `VITE_PROXY_TARGET` in `.env` (copy from `.env.example`), or run
+`vercel dev`. Do not commit `.env`; it is git-ignored.
 
 ## Deployment (Vercel)
 
 1. Import the repo at vercel.com; it detects Vite automatically.
-2. Add the environment variable `MUSIXMATCH_API_KEY` in the project settings.
-3. Deploy (or redeploy after adding the variable). The app and `/api/musixmatch` share an origin, so no further configuration is needed in the app.
+2. Add the environment variables above (at least the Supabase, translation and
+   YouTube ones) for the Production **and** Preview environments.
+3. Deploy. The app and `/api/*` share an origin, so no further configuration is
+   needed in the app.
 
-## Notes
+## Lyrics and copyright
 
-- To test the function directly: `/api/musixmatch?path=track.search&q=hello&page_size=3` on the deployed site should return JSON.
-- The author's idea for a phone app is to wrap the built app with Capacitor; native builds are not subject to CORS, so the proxy would become optional there. This is not set up in the repo.
-- A "paste your own lyrics" mode is noted in SETUP.md as a possible small addition; the reader already takes a `{ lines: [{ pl, en }] }` shape.
-
-Built by Martin Hollingham.
+No lyrics are bundled. Each person adds lyrics to their **own private** library for
+personal study; nothing is shared between accounts. Auto-translation is a rough
+first draft to correct by hand — which is where the learning is.
