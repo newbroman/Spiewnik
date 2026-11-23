@@ -42,6 +42,9 @@ const PROVIDER_KEY = "spiewnik.provider.v1";
 const norm = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 const esc = (s) => s || "";
 
+// The original owner — the only account the one-time Daria import is offered to.
+const OWNER_ID = "4068f297-5cf7-4ab1-ba1d-93d7de2ad264";
+
 // Map a DB row to the shape the UI uses (camelCase for media ids).
 const fromRow = (r) => ({
   id: r.id, language: r.language || "Polish", artist: r.artist || "", title: r.title || "",
@@ -115,6 +118,19 @@ export default function App() {
     if (error) flash("Save didn't reach the server: " + error.message);
   }
 
+  async function importOld() {
+    flash("Importing your old songs…");
+    try {
+      const r = await fetch("/api/import-daria", { method: "POST", headers: apiHeaders() });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Import failed");
+      await loadSongs();
+      flash(j.inserted ? `Imported ${j.inserted} songs` : (j.note || "Nothing new to import"));
+    } catch (e) {
+      flash("Import failed: " + e.message);
+    }
+  }
+
   async function removeSong(id) {
     setSongs((prev) => prev.filter((s) => s.id !== id));
     setView("list");
@@ -134,6 +150,8 @@ export default function App() {
       {view === "list" && (
         <ListView
           songs={songs} loading={loading} email={session.user.email}
+          canImport={session.user.id === OWNER_ID}
+          onImport={importOld}
           onOpen={(id) => { setCurId(id); setView("reader"); }}
           onAdd={() => setView("add")}
           onSignOut={() => supabase.auth.signOut()}
@@ -226,7 +244,7 @@ function Auth({ flash }) {
 }
 
 // ---- Library list -----------------------------------------------------------
-function ListView({ songs, loading, email, onOpen, onAdd, onSignOut }) {
+function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, onSignOut }) {
   // Group by language, then show the artist on each row.
   const groups = [];
   songs.forEach((s) => {
@@ -278,6 +296,9 @@ function ListView({ songs, loading, email, onOpen, onAdd, onSignOut }) {
           ))
         )}
         <div className="addrow"><button className="add" onClick={onAdd}>+ Add a song</button></div>
+        {canImport && (
+          <div className="addrow"><button className="importbtn" onClick={onImport}>⤓ Import my old Daria ze Śląska set</button></div>
+        )}
       </div>
     </>
   );
@@ -677,6 +698,7 @@ const CSS = `
 .song .meta p{ margin:2px 0 0; font-size:12px; color:var(--mist-dim); }
 .dot{ width:9px; height:9px; border-radius:50%; flex:none; } .dot.full{ background:var(--rose); } .dot.empty{ background:none; border:1.5px solid var(--night-3); }
 .addrow{ margin-top:14px; } .add{ width:100%; background:none; border:1.5px dashed var(--night-3); color:var(--rose); border-radius:14px; padding:13px; font-family:var(--ui); font-size:14px; cursor:pointer; } .add:hover{ border-color:var(--rose); }
+.importbtn{ width:100%; background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:14px; padding:12px; font-family:var(--ui); font-size:13px; cursor:pointer; } .importbtn:hover{ border-color:var(--rose); color:#f0ebe0; }
 .rbar{ display:flex; align-items:center; gap:10px; padding:16px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--night); z-index:3; }
 .icbtn{ background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:10px; height:38px; min-width:38px; padding:0 12px; cursor:pointer; font-size:14px; font-family:var(--ui); line-height:1; }
 .icbtn.accent{ background:var(--rose); border-color:var(--rose); color:#20140f; font-weight:600; }
