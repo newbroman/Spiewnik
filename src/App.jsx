@@ -1,242 +1,330 @@
 import React, { useEffect, useRef, useState } from "react";
+import { supabase, setAccessToken, apiHeaders } from "./supabase.js";
 
 // ============================================================================
-//  Śpiewnik — side-by-side lyric study (Polish | English)
+//  Śpiewnik — learn a language through song lyrics, line by line.
 //
-//  Paste a song's Polish lyric and its English line-for-line, and read them
-//  side by side. "Auto-translate" fills the English column from the Polish via
-//  the /api/translate serverless function (DeepL or Google — your key, your
-//  server). Lyrics are supplied by you, for personal study; none are bundled.
-//  Song content is kept in this browser (localStorage), not sent anywhere but
-//  the translation service you configure.
+//  Each person signs in and keeps their OWN private library: any artist, any
+//  language. Paste a song's original lyric and its English line-for-line, read
+//  them side by side, hear the track (YouTube / Spotify), and practise saying
+//  the lines aloud. Content lives in your account (Supabase), protected row by
+//  row so no one else can see your songs.
 // ============================================================================
 
-// Her song titles (public facts), from her catalogue. You paste the lyrics yourself.
-const SEED = [
-  { album: "Songs", songs: [
-    "A może jeszcze się da", "Aureola", "Chinatown", "Ciężki plecak",
-    "Co Tam Jak Się Masz", "Duch", "Dziewczyna z tatuażem", "Falstart albo faul",
-    "Gambino", "Gorączka", "Houston", "Kill Bill", "Mainstream", "Miłość itd.",
-    "Nie masz sił to płacz", "Pamięć do złych słów ft. Kortez", "Patrz patrz",
-    "Plastelina", "Skacz ze mną na bombę ft. Małpa", "Tańcz", "Taras",
-    "To nie zabawa", "Trója z chemii", "Trudno jest być sobą", "Wariatka!", "Wróć",
-  ] },
+// Languages offered for a new song. `code` is the translation source code
+// (DeepL/Google); `bcp` drives text-to-speech and speech recognition.
+const LANGS = [
+  { name: "Polish", code: "PL", bcp: "pl-PL" },
+  { name: "Spanish", code: "ES", bcp: "es-ES" },
+  { name: "French", code: "FR", bcp: "fr-FR" },
+  { name: "German", code: "DE", bcp: "de-DE" },
+  { name: "Italian", code: "IT", bcp: "it-IT" },
+  { name: "Portuguese", code: "PT", bcp: "pt-PT" },
+  { name: "Dutch", code: "NL", bcp: "nl-NL" },
+  { name: "Russian", code: "RU", bcp: "ru-RU" },
+  { name: "Ukrainian", code: "UK", bcp: "uk-UA" },
+  { name: "Czech", code: "CS", bcp: "cs-CZ" },
+  { name: "Swedish", code: "SV", bcp: "sv-SE" },
+  { name: "Norwegian", code: "NB", bcp: "nb-NO" },
+  { name: "Danish", code: "DA", bcp: "da-DK" },
+  { name: "Finnish", code: "FI", bcp: "fi-FI" },
+  { name: "Greek", code: "EL", bcp: "el-GR" },
+  { name: "Turkish", code: "TR", bcp: "tr-TR" },
+  { name: "Japanese", code: "JA", bcp: "ja-JP" },
+  { name: "Korean", code: "KO", bcp: "ko-KR" },
+  { name: "Chinese", code: "ZH", bcp: "zh-CN" },
 ];
-const ARTIST = "Daria ze Śląska";
-const KEY = "spiewnik.sidebyside.v1";
+const langOf = (name) => LANGS.find((l) => l.name === name) || LANGS[0];
+
+const PLAYER_KEY = "spiewnik.player.v1";
 const PROVIDER_KEY = "spiewnik.provider.v1";
-const PASS_KEY = "spiewnik.pass.v1";
 
-// Send the saved passphrase with every backend call. The server rejects calls
-// without it (401) once a passphrase is configured, so content stays private.
-const getPass = () => { try { return localStorage.getItem(PASS_KEY) || ""; } catch { return ""; } };
-const authHeaders = () => { const p = getPass(); return p ? { "x-spiewnik-pass": p } : {}; };
-
-// Compare titles ignoring case and accents, so "Troja"/"Trója" don't double up.
 const norm = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
-
-function seed() {
-  const songs = [];
-  let n = 0;
-  SEED.forEach((g) => g.songs.forEach((t) => songs.push({ id: "seed-" + n++, title: t, album: g.album, pl: "", en: "" })));
-  return songs;
-}
-function loadSongs() {
-  let stored = null;
-  try { const r = JSON.parse(localStorage.getItem(KEY)); if (Array.isArray(r?.songs)) stored = r.songs; } catch {}
-  if (!stored) return seed();
-  // Merge in any catalogue songs the saved list doesn't have yet, without
-  // touching lyrics the user already added.
-  const have = new Set(stored.map((s) => norm(s.title)));
-  const additions = seed().filter((s) => !have.has(norm(s.title)));
-  return additions.length ? [...stored, ...additions] : stored;
-}
-
-// Combine two song lists by title. The copy that HAS lyrics wins; if both have
-// lyrics, the more recently edited one wins. This is what keeps a device's real
-// words from being wiped by another device's blanks when syncing.
-function mergeByTitle(a, b) {
-  const map = new Map();
-  const add = (s) => {
-    const k = norm(s.title);
-    const ex = map.get(k);
-    if (!ex) { map.set(k, { ...s }); return; }
-    const exHas = !!(ex.pl && ex.pl.trim()), sHas = !!(s.pl && s.pl.trim());
-    if (sHas && !exHas) map.set(k, { ...ex, ...s });
-    else if (sHas === exHas && (s.updatedAt || 0) >= (ex.updatedAt || 0)) map.set(k, { ...ex, ...s });
-  };
-  (a || []).forEach(add);
-  (b || []).forEach(add);
-  return [...map.values()];
-}
-function saveSongs(songs) { try { localStorage.setItem(KEY, JSON.stringify({ songs })); } catch {} }
 const esc = (s) => s || "";
 
+// Map a DB row to the shape the UI uses (camelCase for media ids).
+const fromRow = (r) => ({
+  id: r.id, language: r.language || "Polish", artist: r.artist || "", title: r.title || "",
+  pl: r.pl || "", en: r.en || "", youtubeId: r.youtube_id, spotifyId: r.spotify_id, position: r.position ?? 0,
+});
+
 export default function App() {
-  const [songs, setSongs] = useState(loadSongs);
-  const [view, setView] = useState("list"); // list | reader | edit
+  const [session, setSession] = useState(undefined); // undefined = checking
+  const [songs, setSongs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState("list"); // list | add | reader | edit | practice
   const [curId, setCurId] = useState(null);
   const [provider, setProvider] = useState(() => { try { return localStorage.getItem(PROVIDER_KEY) || "deepl"; } catch { return "deepl"; } });
   const [toast, setToast] = useState("");
-  const [locked, setLocked] = useState(null); // null = checking, true = needs passphrase, false = open
 
-  const syncedRef = useRef(false);
-  const pushTimer = useRef(null);
-  const pushServer = (list) => {
-    clearTimeout(pushTimer.current);
-    pushTimer.current = setTimeout(() => {
-      fetch("/api/data", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ songs: list }) }).catch(() => {});
-    }, 600);
-  };
+  const flash = (m) => { setToast(m); clearTimeout(flash._t); flash._t = setTimeout(() => setToast(""), 2800); };
 
-  // Pull the shared lyrics, merge with this device, then keep pushing changes.
-  // If the server needs a passphrase (401), show the lock; if the store is off
-  // or offline, fall back to local-only.
-  async function syncInit() {
-    try {
-      const r = await fetch("/api/data", { headers: authHeaders() });
-      if (r.status === 401) { setLocked(true); return; }
-      setLocked(false);
-      if (r.ok) {
-        const j = await r.json();
-        if (Array.isArray(j.songs)) setSongs((prev) => mergeByTitle(j.songs, prev));
-      }
-    } catch { setLocked(false); }
-    syncedRef.current = true;
-    setSongs((prev) => { pushServer(prev); return prev; }); // seed the store from this device
-  }
-  useEffect(() => { syncInit(); }, []);
-
-  async function unlock(pass) {
-    try {
-      const r = await fetch("/api/data", { headers: { "x-spiewnik-pass": pass } });
-      if (r.status === 401) return false;
-      try { localStorage.setItem(PASS_KEY, pass); } catch {}
-      await syncInit();
-      return true;
-    } catch { return false; }
-  }
-
+  // --- Auth: track the session and keep the API token in sync ----------------
   useEffect(() => {
-    saveSongs(songs);
-    if (syncedRef.current) pushServer(songs);
-  }, [songs]);
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session || null);
+      setAccessToken(data.session?.access_token);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+      setSession(s || null);
+      setAccessToken(s?.access_token);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // --- Load this person's songs once signed in -------------------------------
+  async function loadSongs() {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("songs").select("*")
+      .order("position", { ascending: true }).order("updated_at", { ascending: true });
+    if (!error && data) setSongs(data.map(fromRow));
+    setLoading(false);
+  }
+  useEffect(() => { if (session) loadSongs(); else { setSongs([]); setLoading(false); } }, [session?.user?.id]);
+
   useEffect(() => { try { localStorage.setItem(PROVIDER_KEY, provider); } catch {} }, [provider]);
 
   const cur = songs.find((s) => s.id === curId);
-  const flash = (m) => { setToast(m); clearTimeout(flash._t); flash._t = setTimeout(() => setToast(""), 2600); };
 
-  const open = (id) => { setCurId(id); setView("reader"); };
-  const edit = (id) => { setCurId(id); setView("edit"); };
-  const back = () => setView(view === "edit" ? "reader" : "list");
+  // --- CRUD against Supabase (RLS scopes every row to this user) -------------
+  async function createSong({ language, artist, title }) {
+    const position = songs.reduce((m, s) => Math.max(m, s.position || 0), 0) + 1;
+    const { data, error } = await supabase
+      .from("songs").insert({ language, artist, title, pl: "", en: "", position })
+      .select().single();
+    if (error) { flash("Couldn't add: " + error.message); return; }
+    const s = fromRow(data);
+    setSongs((p) => [...p, s]);
+    setCurId(s.id); setView("edit");
+  }
 
-  function saveSong(patch) {
-    setSongs((prev) => prev.map((s) => (s.id === curId ? { ...s, ...patch } : s)));
+  async function saveSong(patch) {
+    if (!curId) return;
+    setSongs((prev) => prev.map((s) => (s.id === curId ? { ...s, ...patch } : s))); // optimistic
+    const row = {};
+    if ("title" in patch) row.title = patch.title;
+    if ("artist" in patch) row.artist = patch.artist;
+    if ("language" in patch) row.language = patch.language;
+    if ("pl" in patch) row.pl = patch.pl;
+    if ("en" in patch) row.en = patch.en;
+    if ("youtubeId" in patch) row.youtube_id = patch.youtubeId;
+    if ("spotifyId" in patch) row.spotify_id = patch.spotifyId;
+    row.updated_at = new Date().toISOString();
+    const { error } = await supabase.from("songs").update(row).eq("id", curId);
+    if (error) flash("Save didn't reach the server: " + error.message);
   }
-  function addSong() {
-    const id = "s" + Date.now().toString(36);
-    setSongs((prev) => [...prev, { id, title: "New song", album: "Single", pl: "", en: "" }]);
-    setCurId(id); setView("edit");
-  }
-  function removeSong(id) {
+
+  async function removeSong(id) {
     setSongs((prev) => prev.filter((s) => s.id !== id));
     setView("list");
-    flash("Song removed");
+    const { error } = await supabase.from("songs").delete().eq("id", id);
+    flash(error ? "Couldn't remove: " + error.message : "Song removed");
   }
 
-  if (locked === true) return <LockScreen onUnlock={unlock} />;
+  if (session === undefined) {
+    return <Shell><div className="splash">Śpiewnik…</div></Shell>;
+  }
+  if (session === null) {
+    return <Shell><Auth flash={flash} /><Toast toast={toast} /></Shell>;
+  }
 
   return (
-    <div className="kl-root">
-      <style>{CSS}</style>
-      <div className="app">
-        {view === "list" && <ListView songs={songs} onOpen={open} onAdd={addSong} />}
-        {view === "reader" && cur && <Reader song={cur} onBack={() => setView("list")} onEdit={() => edit(cur.id)} onPractice={() => setView("practice")} onFoundMedia={(patch) => saveSong(patch)} />}
-        {view === "practice" && cur && <Practice song={cur} onBack={() => setView("reader")} />}
-        {view === "edit" && cur && (
-          <Editor
-            song={cur} provider={provider} setProvider={setProvider}
-            onBack={back} onSave={(patch) => { saveSong(patch); setView("reader"); flash("Saved on this device"); }}
-            onRemove={() => removeSong(cur.id)} flash={flash}
-          />
-        )}
-      </div>
-      <div className={"kl-toast" + (toast ? " show" : "")}>{toast}</div>
-    </div>
+    <Shell>
+      {view === "list" && (
+        <ListView
+          songs={songs} loading={loading} email={session.user.email}
+          onOpen={(id) => { setCurId(id); setView("reader"); }}
+          onAdd={() => setView("add")}
+          onSignOut={() => supabase.auth.signOut()}
+        />
+      )}
+      {view === "add" && <AddSong onBack={() => setView("list")} onCreate={createSong} />}
+      {view === "reader" && cur && (
+        <Reader song={cur} onBack={() => setView("list")} onEdit={() => setView("edit")}
+          onPractice={() => setView("practice")} onFoundMedia={(patch) => saveSong(patch)} />
+      )}
+      {view === "practice" && cur && <Practice song={cur} onBack={() => setView("reader")} />}
+      {view === "edit" && cur && (
+        <Editor song={cur} provider={provider} setProvider={setProvider}
+          onBack={() => setView("reader")}
+          onSave={(patch) => { saveSong(patch); setView("reader"); flash("Saved"); }}
+          onRemove={() => removeSong(cur.id)} flash={flash} />
+      )}
+      <Toast toast={toast} />
+    </Shell>
   );
 }
 
-function LockScreen({ onUnlock }) {
-  const [v, setV] = useState("");
-  const [err, setErr] = useState(false);
+function Shell({ children }) {
+  return (
+    <div className="kl-root">
+      <style>{CSS}</style>
+      <div className="app">{children}</div>
+    </div>
+  );
+}
+function Toast({ toast }) {
+  return <div className={"kl-toast" + (toast ? " show" : "")}>{toast}</div>;
+}
+
+// ---- Sign in / sign up ------------------------------------------------------
+function Auth({ flash }) {
+  const [mode, setMode] = useState("signin"); // signin | signup
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [note, setNote] = useState("");
+
   const submit = async () => {
-    if (!v.trim() || busy) return;
-    setBusy(true); setErr(false);
-    const ok = await onUnlock(v.trim());
-    setBusy(false);
-    if (!ok) { setErr(true); setV(""); }
+    if (busy) return;
+    const e = email.trim();
+    if (!e || !pw) { setErr("Enter your email and a password."); return; }
+    setBusy(true); setErr(""); setNote("");
+    try {
+      if (mode === "signup") {
+        const { data, error } = await supabase.auth.signUp({ email: e, password: pw });
+        if (error) throw error;
+        if (!data.session) {
+          setNote("Account created. Check your email for a confirmation link, then sign in.");
+          setMode("signin");
+        }
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email: e, password: pw });
+        if (error) throw error;
+      }
+    } catch (ex) {
+      setErr(ex.message || "Something went wrong.");
+    } finally {
+      setBusy(false);
+    }
   };
+
   return (
-    <div className="kl-root">
-      <style>{CSS}</style>
-      <div className="app">
-        <div className="lock">
-          <div className="lockcard">
-            <div className="eyebrow">Side-by-side lyrics</div>
-            <h1>Śpiewnik</h1>
-            <p>Enter your passphrase to open your lyrics.</p>
-            <input type="password" value={v} autoFocus placeholder="Passphrase"
-              onChange={(e) => setV(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
-            {err && <div className="lockerr">That passphrase didn’t match.</div>}
-            <button onClick={submit} disabled={busy}>{busy ? "Checking…" : "Unlock"}</button>
-          </div>
-        </div>
+    <div className="lock">
+      <div className="lockcard">
+        <div className="eyebrow">Learn a language through song</div>
+        <h1>Śpiewnik</h1>
+        <p>{mode === "signup" ? "Create an account — your songs stay private to you." : "Sign in to your song library."}</p>
+        <input type="email" value={email} autoFocus placeholder="Email" autoComplete="email"
+          onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+        <input type="password" value={pw} placeholder="Password" style={{ marginTop: 10 }}
+          autoComplete={mode === "signup" ? "new-password" : "current-password"}
+          onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+        {err && <div className="lockerr">{err}</div>}
+        {note && <div className="locknote">{note}</div>}
+        <button onClick={submit} disabled={busy}>
+          {busy ? "…" : mode === "signup" ? "Create account" : "Sign in"}
+        </button>
+        <button className="linkbtn" onClick={() => { setErr(""); setNote(""); setMode(mode === "signup" ? "signin" : "signup"); }}>
+          {mode === "signup" ? "Have an account? Sign in" : "New here? Create an account"}
+        </button>
       </div>
     </div>
   );
 }
 
-function ListView({ songs, onOpen, onAdd }) {
-  const albums = [];
-  songs.forEach((s) => { let a = albums.find((x) => x.album === s.album); if (!a) { a = { album: s.album, items: [] }; albums.push(a); } a.items.push(s); });
+// ---- Library list -----------------------------------------------------------
+function ListView({ songs, loading, email, onOpen, onAdd, onSignOut }) {
+  // Group by language, then show the artist on each row.
+  const groups = [];
+  songs.forEach((s) => {
+    let g = groups.find((x) => x.language === s.language);
+    if (!g) { g = { language: s.language, items: [] }; groups.push(g); }
+    g.items.push(s);
+  });
   const done = songs.filter((s) => s.pl && s.pl.trim()).length;
+
   return (
     <>
       <div className="top">
-        <div className="eyebrow">Side-by-side lyrics · study</div>
-        <h1>{ARTIST}</h1>
-        <p>{done} of {songs.length} songs filled in. Open one to read Polish and English side by side, or to paste and translate its lyrics.</p>
+        <div className="toprow">
+          <div className="eyebrow">Your song library</div>
+          <button className="signout" onClick={onSignOut}>Sign out</button>
+        </div>
+        <h1>Śpiewnik</h1>
+        <p>{songs.length === 0
+          ? "Add your first song — any artist, any language — then read it line by line."
+          : `${done} of ${songs.length} filled in. Signed in as ${email}.`}</p>
       </div>
       <div className="body">
-        {albums.map((a) => (
-          <div key={a.album}>
-            <div className="albsect">{a.album}</div>
-            <div className="songs">
-              {a.items.map((s, i) => {
-                const filled = !!(s.pl && s.pl.trim());
-                return (
-                  <button key={s.id} className="song" onClick={() => onOpen(s.id)}>
-                    <span className="num">{i + 1}</span>
-                    <span className="meta">
-                      <h3>{s.title}</h3>
-                      <p>{filled ? s.pl.split("\n").filter((l) => l.trim()).length + " lines" : "No lyrics yet — tap to add"}</p>
-                    </span>
-                    <span className={"dot " + (filled ? "full" : "empty")} />
-                  </button>
-                );
-              })}
-            </div>
+        {loading ? (
+          <div className="emptylib">Loading your songs…</div>
+        ) : songs.length === 0 ? (
+          <div className="emptylib">
+            Nothing here yet.<br />Tap <b>Add a song</b> to start your library.
           </div>
-        ))}
+        ) : (
+          groups.map((g) => (
+            <div key={g.language}>
+              <div className="albsect">{g.language}</div>
+              <div className="songs">
+                {g.items.map((s, i) => {
+                  const filled = !!(s.pl && s.pl.trim());
+                  return (
+                    <button key={s.id} className="song" onClick={() => onOpen(s.id)}>
+                      <span className="num">{i + 1}</span>
+                      <span className="meta">
+                        <h3>{s.title || "Untitled"}</h3>
+                        <p>{s.artist ? s.artist + " · " : ""}{filled ? s.pl.split("\n").filter((l) => l.trim()).length + " lines" : "No lyrics yet — tap to add"}</p>
+                      </span>
+                      <span className={"dot " + (filled ? "full" : "empty")} />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))
+        )}
         <div className="addrow"><button className="add" onClick={onAdd}>+ Add a song</button></div>
       </div>
     </>
   );
 }
 
-const PLAYER_KEY = "spiewnik.player.v1";
+// ---- Add a song -------------------------------------------------------------
+function AddSong({ onBack, onCreate }) {
+  const [language, setLanguage] = useState("Polish");
+  const [artist, setArtist] = useState("");
+  const [title, setTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+  const create = async () => {
+    if (!title.trim() || busy) return;
+    setBusy(true);
+    await onCreate({ language, artist: artist.trim(), title: title.trim() });
+  };
+  return (
+    <>
+      <div className="rbar">
+        <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
+        <div className="ttl"><h2>Add a song</h2><p>Any artist, any language</p></div>
+      </div>
+      <div className="editor">
+        <div className="addform">
+          <div><label>Language</label>
+            <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+              {LANGS.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
+            </select>
+          </div>
+          <div><label>Artist</label>
+            <input value={artist} placeholder="e.g. Daria ze Śląska" onChange={(e) => setArtist(e.target.value)} />
+          </div>
+          <div><label>Title</label>
+            <input value={title} autoFocus placeholder="Song title" onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && create()} />
+          </div>
+        </div>
+        <div className="actions">
+          <button className="save" onClick={create} disabled={busy}>{busy ? "Adding…" : "Add & paste lyrics"}</button>
+          <button className="cancel" onClick={onBack}>Cancel</button>
+        </div>
+      </div>
+    </>
+  );
+}
 
+// ---- Reader (side-by-side + player + auto-scroll) ---------------------------
 function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
   const pl = (song.pl || "").split("\n");
   const en = (song.en || "").split("\n");
@@ -246,17 +334,14 @@ function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
   const [sp, setSp] = useState(song.spotifyId ?? undefined);
   const [source, setSource] = useState(() => { try { return localStorage.getItem(PLAYER_KEY) || "youtube"; } catch { return "youtube"; } });
 
-  // Resolve the song on YouTube and Spotify once each, then remember the ids.
-  // A source with its key not set on the server just stays hidden.
   useEffect(() => {
     let active = true;
     setYt(song.youtubeId ?? undefined);
     setSp(song.spotifyId ?? undefined);
-    if (song.example) return;
     const resolve = async (api, cached, setter, field) => {
-      if (cached !== undefined && cached !== null) return; // already looked up (id or "none")
+      if (cached !== undefined && cached !== null) return;
       try {
-        const r = await fetch(`${api}?title=${encodeURIComponent(song.title)}&artist=${encodeURIComponent(ARTIST)}`, { headers: authHeaders() });
+        const r = await fetch(`${api}?title=${encodeURIComponent(song.title)}&artist=${encodeURIComponent(song.artist || "")}`, { headers: apiHeaders() });
         if (!r.ok || !active) return;
         const j = await r.json();
         if (!active) return;
@@ -276,9 +361,8 @@ function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
   const eff = avail.includes(source) ? source : avail[0];
   const pick = (s) => { setSource(s); try { localStorage.setItem(PLAYER_KEY, s); } catch {} };
 
-  // Auto-scroll: gently scroll the lyrics at an adjustable speed (teleprompter-style).
   const [autoScroll, setAutoScroll] = useState(false);
-  const [scrollSpeed, setScrollSpeed] = useState(8); // pixels per second
+  const [scrollSpeed, setScrollSpeed] = useState(8);
   useEffect(() => {
     if (!autoScroll) return;
     let raf, last = performance.now(), acc = 0;
@@ -289,66 +373,60 @@ function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
         const max = document.documentElement.scrollHeight - window.innerHeight;
         const next = Math.min(max, window.scrollY + px);
         window.scrollTo(0, next);
-        if (next >= max) { setAutoScroll(false); return; } // stop at the end
+        if (next >= max) { setAutoScroll(false); return; }
       }
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
   }, [autoScroll, scrollSpeed]);
+
   return (
     <>
       <div className="rhead2">
-      <div className="rbar">
-        <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
-        <div className="ttl"><h2>{song.title}</h2><p>{song.album}</p></div>
-        {has ? <button className="icbtn" onClick={onPractice}>Practice</button> : null}
-        <button className="icbtn accent" onClick={onEdit}>Edit</button>
-      </div>
-      {avail.length > 0 && (
-        <div className="playerbox">
-          <div className="plcontrols">
-            {avail.length > 1 ? (
-              <div className="srctoggle">
-                <button className={eff === "youtube" ? "on" : ""} onClick={() => pick("youtube")}>YouTube</button>
-                <button className={eff === "spotify" ? "on" : ""} onClick={() => pick("spotify")}>Spotify</button>
-              </div>
-            ) : <span />}
-            <div className="ascroll">
-              {autoScroll && (
-                <>
-                  <button className="asstep" aria-label="Slower" onClick={() => setScrollSpeed((s) => Math.max(2, s - 3))}>−</button>
-                  <button className="asstep" aria-label="Faster" onClick={() => setScrollSpeed((s) => Math.min(44, s + 3))}>+</button>
-                </>
-              )}
-              <button className={"autoscroll" + (autoScroll ? " on" : "")} onClick={() => setAutoScroll((v) => !v)}>
-                {autoScroll ? "Auto-scroll ●" : "Auto-scroll"}
-              </button>
-            </div>
-          </div>
-          {eff === "youtube" ? (
-            <iframe
-              key={yt}
-              className="yt" title="YouTube player"
-              src={`https://www.youtube.com/embed/${yt}?rel=0`}
-              loading="lazy" allowFullScreen
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            />
-          ) : (
-            <iframe
-              className="spotify" title="Spotify player"
-              src={`https://open.spotify.com/embed/track/${sp}`}
-              width="100%" height="152" loading="lazy"
-              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
-            />
-          )}
+        <div className="rbar">
+          <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
+          <div className="ttl"><h2>{song.title}</h2><p>{[song.artist, song.language].filter(Boolean).join(" · ")}</p></div>
+          {has ? <button className="icbtn" onClick={onPractice}>Practice</button> : null}
+          <button className="icbtn accent" onClick={onEdit}>Edit</button>
         </div>
-      )}
+        {avail.length > 0 && (
+          <div className="playerbox">
+            <div className="plcontrols">
+              {avail.length > 1 ? (
+                <div className="srctoggle">
+                  <button className={eff === "youtube" ? "on" : ""} onClick={() => pick("youtube")}>YouTube</button>
+                  <button className={eff === "spotify" ? "on" : ""} onClick={() => pick("spotify")}>Spotify</button>
+                </div>
+              ) : <span />}
+              <div className="ascroll">
+                {autoScroll && (
+                  <>
+                    <button className="asstep" aria-label="Slower" onClick={() => setScrollSpeed((s) => Math.max(2, s - 3))}>−</button>
+                    <button className="asstep" aria-label="Faster" onClick={() => setScrollSpeed((s) => Math.min(44, s + 3))}>+</button>
+                  </>
+                )}
+                <button className={"autoscroll" + (autoScroll ? " on" : "")} onClick={() => setAutoScroll((v) => !v)}>
+                  {autoScroll ? "Auto-scroll ●" : "Auto-scroll"}
+                </button>
+              </div>
+            </div>
+            {eff === "youtube" ? (
+              <iframe key={yt} className="yt" title="YouTube player"
+                src={`https://www.youtube.com/embed/${yt}?rel=0`} loading="lazy" allowFullScreen
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" />
+            ) : (
+              <iframe className="spotify" title="Spotify player"
+                src={`https://open.spotify.com/embed/track/${sp}`} width="100%" height="152" loading="lazy"
+                allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" />
+            )}
+          </div>
+        )}
       </div>
       <div className="sheet">
-        <div className="sheethead"><span>Polski</span><span>English</span></div>
+        <div className="sheethead"><span>{song.language}</span><span>English</span></div>
         {!has ? (
-          <div className="emptysheet">No lyrics here yet.<br />Tap <b>Edit</b> to paste the Polish, then Auto-translate or type the English.</div>
+          <div className="emptysheet">No lyrics here yet.<br />Tap <b>Edit</b> to paste the original, then Auto-translate or type the English.</div>
         ) : (
           <div className="grid">
             {Array.from({ length: n }).map((_, i) => {
@@ -356,8 +434,8 @@ function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
               if (!p && !e) return <React.Fragment key={i}><div className="cell gap pl" /><div className="cell gap en" /></React.Fragment>;
               return (
                 <React.Fragment key={i}>
-                  <div className="cell pl">{esc(p) || " "}</div>
-                  <div className="cell en">{esc(e) || " "}</div>
+                  <div className="cell pl">{esc(p) || " "}</div>
+                  <div className="cell en">{esc(e) || " "}</div>
                 </React.Fragment>
               );
             })}
@@ -368,8 +446,7 @@ function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
   );
 }
 
-// Say-the-line practice: hear each line (text-to-speech), then speak it and get
-// a per-word match score (speech recognition). All in-browser, no keys.
+// ---- Practice ---------------------------------------------------------------
 const pracWords = (s) => norm(s).replace(/[^\p{L}\s]/gu, " ").split(/\s+/).filter(Boolean);
 function grade(target, heard) {
   const t = pracWords(target); const h = new Set(pracWords(heard));
@@ -378,6 +455,7 @@ function grade(target, heard) {
 }
 
 function Practice({ song, onBack }) {
+  const bcp = langOf(song.language).bcp;
   const lines = React.useMemo(() => {
     const pl = (song.pl || "").split("\n");
     const en = (song.en || "").split("\n");
@@ -408,8 +486,8 @@ function Practice({ song, onBack }) {
     try {
       const synth = window.speechSynthesis; synth.cancel();
       const u = new SpeechSynthesisUtterance(line.pl);
-      u.lang = "pl-PL"; u.rate = 0.9;
-      const v = synth.getVoices().find((x) => /pl/i.test(x.lang));
+      u.lang = bcp; u.rate = 0.9;
+      const v = synth.getVoices().find((x) => x.lang && x.lang.toLowerCase().startsWith(bcp.slice(0, 2)));
       if (v) u.voice = v;
       synth.speak(u);
     } catch {}
@@ -417,7 +495,7 @@ function Practice({ song, onBack }) {
   const listen = () => {
     if (!Rec) return;
     const rec = new Rec(); recRef.current = rec;
-    rec.lang = "pl-PL"; rec.interimResults = false; rec.maxAlternatives = 1;
+    rec.lang = bcp; rec.interimResults = false; rec.maxAlternatives = 1;
     setHeard(""); setScore(null); setListening(true);
     rec.onresult = (e) => { const t = e.results[0][0].transcript; setHeard(t); setScore(grade(line.pl, t)); };
     rec.onerror = () => setListening(false);
@@ -439,7 +517,6 @@ function Practice({ song, onBack }) {
         </div>
         {showEn && <div className="pracen">{line.en || "—"}</div>}
         <button className="pracen-toggle" onClick={() => setShowEn((v) => !v)}>{showEn ? "Hide meaning" : "Show meaning"}</button>
-
         <div className="pracbtns">
           <button className="pracbtn" onClick={speak}>Listen</button>
           {Rec ? (
@@ -448,7 +525,6 @@ function Practice({ song, onBack }) {
             </button>
           ) : null}
         </div>
-
         {heard && (
           <div className="pracfb">
             <div className="pracpct" data-good={!!(score && score.pct >= 70)}>{score ? score.pct : 0}% match</div>
@@ -456,7 +532,6 @@ function Practice({ song, onBack }) {
           </div>
         )}
         {!Rec && <p className="pracnote">Speaking feedback needs Chrome or an Android phone. You can still tap Listen and read along.</p>}
-
         <div className="pracnav">
           <button className="navbtn" onClick={() => go(-1)} disabled={idx === 0}>← Prev</button>
           <button className="navbtn" onClick={() => go(1)} disabled={idx === lines.length - 1}>Next →</button>
@@ -466,21 +541,23 @@ function Practice({ song, onBack }) {
   );
 }
 
+// ---- Editor -----------------------------------------------------------------
 function Editor({ song, provider, setProvider, onBack, onSave, onRemove, flash }) {
   const [title, setTitle] = useState(song.title);
-  const [album, setAlbum] = useState(song.album || "");
+  const [artist, setArtist] = useState(song.artist || "");
+  const [language, setLanguage] = useState(song.language || "Polish");
   const [pl, setPl] = useState(song.pl || "");
   const [en, setEn] = useState(song.en || "");
   const [busy, setBusy] = useState(false);
 
   async function autoTranslate() {
     const lines = pl.split("\n");
-    if (!pl.trim()) { flash("Paste the Polish first"); return; }
+    if (!pl.trim()) { flash("Paste the original lyrics first"); return; }
     setBusy(true);
     try {
       const r = await fetch("/api/translate", {
-        method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ lines, source: "PL", target: "EN", provider }),
+        method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
+        body: JSON.stringify({ lines, source: langOf(language).code, target: "EN", provider }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Translation failed");
@@ -493,6 +570,8 @@ function Editor({ song, provider, setProvider, onBack, onSave, onRemove, flash }
     }
   }
 
+  const findUrl = "https://www.google.com/search?q=" + encodeURIComponent(`${artist} ${title || ""} tekst lyrics`);
+
   return (
     <>
       <div className="rbar">
@@ -500,19 +579,24 @@ function Editor({ song, provider, setProvider, onBack, onSave, onRemove, flash }
         <div className="ttl"><h2>Edit</h2><p>{song.title}</p></div>
       </div>
       <div className="editor">
-        <div className="meta2">
+        <div className="meta3">
           <div><label>Title</label><input value={title} onChange={(e) => setTitle(e.target.value)} /></div>
-          <div><label>Album <span className="opt">optional</span></label><input value={album} onChange={(e) => setAlbum(e.target.value)} /></div>
+          <div><label>Artist</label><input value={artist} onChange={(e) => setArtist(e.target.value)} /></div>
+          <div><label>Language</label>
+            <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+              {LANGS.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
+            </select>
+          </div>
         </div>
         <div className="cols">
           <div>
-            <label>Polski <span className="opt">paste the whole lyric</span></label>
-            <textarea value={pl} onChange={(e) => setPl(e.target.value)} placeholder={"Paste the full Polish lyric here —\nall the lines at once."} />
-            <a className="find" href={findUrl(title)} target="_blank" rel="noreferrer">Find Polish lyrics ↗</a>
+            <label>{language} <span className="opt">paste the whole lyric</span></label>
+            <textarea value={pl} onChange={(e) => setPl(e.target.value)} placeholder={"Paste the full lyric here —\nall the lines at once."} />
+            <a className="find" href={findUrl} target="_blank" rel="noreferrer">Find the lyrics ↗</a>
           </div>
           <div>
             <label>English <span className="opt">auto or type</span></label>
-            <textarea className="en" value={en} onChange={(e) => setEn(e.target.value)} placeholder={"Auto-translate, or type the English\nlined up with the Polish."} />
+            <textarea className="en" value={en} onChange={(e) => setEn(e.target.value)} placeholder={"Auto-translate, or type the English\nlined up with the original."} />
             <div className="trrow">
               <button className="tr" onClick={autoTranslate} disabled={busy}>{busy ? "Translating…" : "⟳ Auto-translate"}</button>
               <select value={provider} onChange={(e) => setProvider(e.target.value)} aria-label="Translation provider">
@@ -522,9 +606,9 @@ function Editor({ song, provider, setProvider, onBack, onSave, onRemove, flash }
             </div>
           </div>
         </div>
-        <p className="hint2">Auto-translate goes line-for-line, so the columns stay aligned. Machine translation is a rough first draft — fix it by hand, which is where the learning is. Needs the translate key set up on your deployment; see SETUP-TRANSLATE.md.</p>
+        <p className="hint2">Auto-translate goes line-for-line, so the columns stay aligned. Machine translation is a rough first draft — fixing it by hand is where the learning is.</p>
         <div className="actions">
-          <button className="save" onClick={() => onSave({ title: title.trim() || song.title, album: album.trim(), pl, en, updatedAt: Date.now() })}>Save</button>
+          <button className="save" onClick={() => onSave({ title: title.trim() || song.title, artist: artist.trim(), language, pl, en })}>Save</button>
           <button className="cancel" onClick={onBack}>Cancel</button>
         </div>
         <button className="danger" onClick={onRemove}>Remove this song</button>
@@ -532,9 +616,6 @@ function Editor({ song, provider, setProvider, onBack, onSave, onRemove, flash }
     </>
   );
 }
-
-const findUrl = (title) =>
-  "https://www.google.com/search?q=" + encodeURIComponent(`${ARTIST} ${title || ""} tekst`);
 
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Newsreader:opsz,wght@6..72,400;6..72,500&family=Inter:wght@400;500;600&display=swap');
@@ -547,11 +628,15 @@ const CSS = `
   font-family:var(--ui); color:var(--mist); -webkit-font-smoothing:antialiased; display:flex; justify-content:center; }
 .kl-root *{ box-sizing:border-box; }
 .app{ width:100%; max-width:680px; min-height:100vh; display:flex; flex-direction:column; position:relative; }
+.splash{ margin:auto; font-family:var(--display); font-weight:900; font-size:26px; color:#f3ede1; opacity:.8; }
 .top{ padding:22px 20px 16px; border-bottom:1px solid var(--line); }
+.toprow{ display:flex; align-items:center; justify-content:space-between; }
+.signout{ background:var(--night-2); border:1px solid var(--line); color:var(--mist-dim); border-radius:9px; padding:6px 12px; font-size:12px; font-family:var(--ui); cursor:pointer; }
 .eyebrow{ font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--rose); font-weight:600; }
 .top h1{ font-family:var(--display); font-weight:900; font-size:30px; letter-spacing:-.02em; color:#f3ede1; margin:4px 0 0; line-height:1.02; }
 .top p{ margin:7px 0 0; font-size:13px; color:var(--mist-dim); }
 .body{ flex:1; padding:6px 16px 60px; }
+.emptylib{ text-align:center; color:var(--mist-dim); padding:48px 20px; font-size:14px; line-height:1.6; } .emptylib b{ color:#f0ebe0; }
 .albsect{ font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--mist-dim); padding:20px 4px 10px; display:flex; align-items:center; gap:10px; }
 .albsect::after{ content:""; flex:1; height:1px; background:var(--line); }
 .songs{ display:flex; flex-direction:column; gap:8px; }
@@ -562,7 +647,7 @@ const CSS = `
 .song .meta h3{ margin:0; font-family:var(--display); font-weight:600; font-size:17px; color:#f0ebe0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .song .meta p{ margin:2px 0 0; font-size:12px; color:var(--mist-dim); }
 .dot{ width:9px; height:9px; border-radius:50%; flex:none; } .dot.full{ background:var(--rose); } .dot.empty{ background:none; border:1.5px solid var(--night-3); }
-.addrow{ margin-top:10px; } .add{ width:100%; background:none; border:1.5px dashed var(--night-3); color:var(--rose); border-radius:14px; padding:13px; font-family:var(--ui); font-size:14px; cursor:pointer; } .add:hover{ border-color:var(--rose); }
+.addrow{ margin-top:14px; } .add{ width:100%; background:none; border:1.5px dashed var(--night-3); color:var(--rose); border-radius:14px; padding:13px; font-family:var(--ui); font-size:14px; cursor:pointer; } .add:hover{ border-color:var(--rose); }
 .rbar{ display:flex; align-items:center; gap:10px; padding:16px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--night); z-index:3; }
 .icbtn{ background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:10px; height:38px; min-width:38px; padding:0 12px; cursor:pointer; font-size:14px; font-family:var(--ui); line-height:1; }
 .icbtn.accent{ background:var(--rose); border-color:var(--rose); color:#20140f; font-weight:600; }
@@ -598,11 +683,12 @@ const CSS = `
 .trrow .tr{ flex:1; background:var(--night-3); border:1px solid var(--line); color:#eef1f6; border-radius:10px; padding:10px; font-family:var(--ui); font-size:13px; font-weight:500; cursor:pointer; }
 .trrow .tr:disabled{ opacity:.55; cursor:default; }
 .trrow select{ background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:10px; padding:0 10px; font-family:var(--ui); font-size:13px; outline:0; }
-.editor .meta2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px; }
-.editor input{ width:100%; background:var(--night-2); border:1px solid var(--line); border-radius:11px; padding:11px 13px; color:#eef1f6; font-size:14px; outline:0; font-family:var(--ui); } .editor input:focus{ border-color:var(--rose); }
+.editor .meta3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:14px; }
+.addform{ display:flex; flex-direction:column; gap:14px; margin-bottom:6px; }
+.editor input, .editor select{ width:100%; background:var(--night-2); border:1px solid var(--line); border-radius:11px; padding:11px 13px; color:#eef1f6; font-size:14px; outline:0; font-family:var(--ui); } .editor input:focus, .editor select:focus{ border-color:var(--rose); }
 .editor .hint2{ font-size:12px; color:var(--mist-dim); margin:12px 2px 0; line-height:1.5; }
 .editor .actions{ display:flex; gap:10px; margin-top:16px; }
-.editor .save{ flex:1; background:var(--rose); color:#20140f; border:0; border-radius:12px; padding:13px; font-weight:600; font-size:15px; font-family:var(--ui); cursor:pointer; }
+.editor .save{ flex:1; background:var(--rose); color:#20140f; border:0; border-radius:12px; padding:13px; font-weight:600; font-size:15px; font-family:var(--ui); cursor:pointer; } .editor .save:disabled{ opacity:.55; }
 .editor .cancel{ background:none; border:1px solid var(--line); color:var(--mist-dim); border-radius:12px; padding:13px 18px; font-size:14px; font-family:var(--ui); cursor:pointer; }
 .editor .danger{ background:none; border:0; color:var(--mist-dim); font-size:12.5px; cursor:pointer; margin-top:18px; text-decoration:underline; }
 .prac{ padding:22px 18px 44px; max-width:520px; margin:0 auto; }
@@ -629,11 +715,13 @@ const CSS = `
 .lockcard input{ width:100%; background:var(--night-2); border:1px solid var(--line); border-radius:12px; padding:13px 15px; color:#eef1f6; font-size:16px; outline:0; font-family:var(--ui); text-align:center; }
 .lockcard input:focus{ border-color:var(--rose); }
 .lockcard .lockerr{ color:#e8938a; font-size:12.5px; margin-top:10px; }
+.lockcard .locknote{ color:#8fd49a; font-size:12.5px; margin-top:10px; line-height:1.5; }
 .lockcard button{ margin-top:14px; width:100%; background:var(--rose); color:#20140f; border:0; border-radius:12px; padding:13px; font-weight:600; font-size:15px; font-family:var(--ui); cursor:pointer; }
 .lockcard button:disabled{ opacity:.5; cursor:default; }
+.lockcard .linkbtn{ background:none; border:0; color:var(--mist-dim); font-size:12.5px; margin-top:12px; padding:0; text-decoration:underline; width:auto; }
 .kl-toast{ position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(10px); opacity:0; background:#2c2030; color:#f3e7e4; border:1px solid var(--rose); border-radius:11px; padding:10px 15px; font-size:12.5px; pointer-events:none; transition:opacity .2s, transform .2s; z-index:9; max-width:84%; text-align:center; }
 .kl-toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
-@media(max-width:520px){ .cell.pl{ font-size:15px; } .cell.en{ font-size:12.5px; } .editor .cols{ grid-template-columns:1fr; } .editor .meta2{ grid-template-columns:1fr; } .top h1{ font-size:26px; } }
+@media(max-width:520px){ .cell.pl{ font-size:15px; } .cell.en{ font-size:12.5px; } .editor .cols{ grid-template-columns:1fr; } .editor .meta3{ grid-template-columns:1fr; } .top h1{ font-size:26px; } }
 .kl-root :focus-visible{ outline:2px solid var(--rose); outline-offset:2px; }
 @media (prefers-reduced-motion: reduce){ .kl-root *{ transition:none !important; } }
 `;

@@ -10,16 +10,17 @@
 //    -> { id, title, channel }   (id null if nothing matched)
 // ============================================================================
 
+import { authorized, ALLOW_HEADERS } from "./_auth.js";
+
 const KEY = process.env.YOUTUBE_API_KEY;
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-spiewnik-pass");
+  res.setHeader("Access-Control-Allow-Headers", ALLOW_HEADERS);
   if (req.method === "OPTIONS") return res.status(204).end();
 
-  const PASS = process.env.APP_PASSPHRASE;
-  if (PASS && req.headers["x-spiewnik-pass"] !== PASS) return res.status(401).json({ error: "Unauthorized" });
+  if (!(await authorized(req))) return res.status(401).json({ error: "Unauthorized" });
 
   if (!KEY) return res.status(500).json({ error: "YOUTUBE_API_KEY not set on the server." });
 

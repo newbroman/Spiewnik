@@ -20,13 +20,14 @@
 //  A request may also override the provider with {provider:"google"} in the body.
 // ============================================================================
 
+import { authorized, ALLOW_HEADERS } from "./_auth.js";
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*"); // tighten to your domain in production
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-spiewnik-pass");
+  res.setHeader("Access-Control-Allow-Headers", ALLOW_HEADERS);
   if (req.method === "OPTIONS") return res.status(204).end();
-  const PASS = process.env.APP_PASSPHRASE;
-  if (PASS && req.headers["x-spiewnik-pass"] !== PASS) return res.status(401).json({ error: "Unauthorized" });
+  if (!(await authorized(req))) return res.status(401).json({ error: "Unauthorized" });
   if (req.method !== "POST") return res.status(405).json({ error: "Use POST." });
 
   // Body may arrive parsed (Vercel) or as a raw string.
