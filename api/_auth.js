@@ -7,8 +7,8 @@
 //    - it carries a valid Supabase session (Authorization: Bearer <token>)
 //      — the multi-user mode, where every signed-in person may use the proxies.
 //
-//  When neither a passphrase is configured on the server nor a token is sent,
-//  access stays open (local/dev with nothing locked down).
+//  A request with neither a matching passphrase nor a valid token is denied,
+//  so the proxies are never open to anonymous use once deployed.
 // ============================================================================
 
 const SUPABASE_URL = process.env.SUPABASE_URL || "https://dojbhuzdgzkbvvdzxmqw.supabase.co";
@@ -29,8 +29,7 @@ export async function authorized(req) {
     } catch { /* fall through */ }
   }
 
-  // Nothing configured and nothing supplied → open (dev). Otherwise deny.
-  if (!PASS) return true;
+  // No matching passphrase and no valid session → deny.
   return false;
 }
 
