@@ -14,6 +14,7 @@ const EN = {
   subSignIn: "Sign in to your song library.",
   subSignUp: "Create an account — your songs stay private to you.",
   email: "Email", password: "Password",
+  show: "Show", hide: "Hide",
   btnCreate: "Create account", btnSignIn: "Sign in",
   toSignIn: "Have an account? Sign in", toSignUp: "New here? Create an account",
   // welcome

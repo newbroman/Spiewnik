@@ -241,6 +241,7 @@ function Auth({ flash }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [note, setNote] = useState("");
+  const [showPw, setShowPw] = useState(false);
 
   const submit = async () => {
     if (busy) return;
@@ -274,9 +275,12 @@ function Auth({ flash }) {
         <p>{mode === "signup" ? t("subSignUp") : t("subSignIn")}</p>
         <input type="email" value={email} autoFocus placeholder={t("email")} autoComplete="email"
           onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
-        <input type="password" value={pw} placeholder={t("password")} style={{ marginTop: 10 }}
-          autoComplete={mode === "signup" ? "new-password" : "current-password"}
-          onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+        <div className="pwwrap">
+          <input type={showPw ? "text" : "password"} value={pw} placeholder={t("password")}
+            autoComplete={mode === "signup" ? "new-password" : "current-password"}
+            onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+          <button type="button" className="pweye" onClick={() => setShowPw((v) => !v)} aria-label={showPw ? t("hide") : t("show")}>{showPw ? t("hide") : t("show")}</button>
+        </div>
         {err && <div className="lockerr">{err}</div>}
         {note && <div className="locknote">{note}</div>}
         <button onClick={submit} disabled={busy}>
@@ -323,8 +327,11 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, o
     let lg = byLang.find((x) => x.language === L);
     if (!lg) { lg = { language: L, artists: [] }; byLang.push(lg); }
     const A = (s.artist && s.artist.trim()) || t("unknownArtist");
-    let ar = lg.artists.find((x) => x.artist === A);
-    if (!ar) { ar = { artist: A, items: [] }; lg.artists.push(ar); }
+    const key = A.toLowerCase();
+    let ar = lg.artists.find((x) => x.key === key);
+    if (!ar) { ar = { key, artist: A, items: [] }; lg.artists.push(ar); }
+    // Prefer a label that starts with a capital (e.g. "Zalia" over "zalia").
+    else if (A.charAt(0) === A.charAt(0).toUpperCase() && ar.artist.charAt(0) !== ar.artist.charAt(0).toUpperCase()) ar.artist = A;
     ar.items.push(s);
   });
   byLang.sort((a, b) => a.language.localeCompare(b.language));
@@ -487,6 +494,7 @@ function Settings({ profile, hasOwnKey, targetLang, onSave, onSaveTarget, onBack
   const t = useT();
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showKey, setShowKey] = useState(false);
   const used = profile?.trial_used || 0;
   const save = async () => { if (!key.trim() || busy) return; setBusy(true); const ok = await onSave(key.trim()); setBusy(false); if (ok) setKey(""); };
   const remove = async () => { setBusy(true); await onSave(""); setBusy(false); };
@@ -511,8 +519,11 @@ function Settings({ profile, hasOwnKey, targetLang, onSave, onSaveTarget, onBack
           ) : (
             <p className="setstate">{t("onShared", { used })}</p>
           )}
-          <input type="password" value={key} placeholder={hasOwnKey ? t("enterNewKey") : t("pasteApiKey")}
-            onChange={(e) => setKey(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
+          <div className="pwfield">
+            <input type={showKey ? "text" : "password"} value={key} placeholder={hasOwnKey ? t("enterNewKey") : t("pasteApiKey")}
+              onChange={(e) => setKey(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
+            <button type="button" className="pweye" onClick={() => setShowKey((v) => !v)} aria-label={showKey ? t("hide") : t("show")}>{showKey ? t("hide") : t("show")}</button>
+          </div>
           <div className="setbtns">
             <button className="save" onClick={save} disabled={busy || !key.trim()}>{busy ? t("saving") : t("saveKey")}</button>
             {hasOwnKey && <button className="cancel" onClick={remove} disabled={busy}>{t("remove")}</button>}
@@ -757,6 +768,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
   const [trialOut, setTrialOut] = useState(false);
   const [keyInput, setKeyInput] = useState("");
   const [savingKey, setSavingKey] = useState(false);
+  const [showKeyInput, setShowKeyInput] = useState(false);
 
   // Try to pull the original lyric automatically (lyrics.ovh via /api/lyrics).
   // `auto` = called silently on open; otherwise it's the button, which reports.
@@ -861,7 +873,10 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
             <p>{t("trialBody")}</p>
             <a className="findbtn" href="https://www.deepl.com/pro-api" target="_blank" rel="noreferrer">{t("getKey")}</a>
             <div className="upsellrow">
-              <input type="password" value={keyInput} placeholder={t("pasteKey")} onChange={(e) => setKeyInput(e.target.value)} />
+              <div className="pwfield" style={{ flex: 1 }}>
+                <input type={showKeyInput ? "text" : "password"} value={keyInput} placeholder={t("pasteKey")} onChange={(e) => setKeyInput(e.target.value)} />
+                <button type="button" className="pweye" onClick={() => setShowKeyInput((v) => !v)} aria-label={showKeyInput ? t("hide") : t("show")}>{showKeyInput ? t("hide") : t("show")}</button>
+              </div>
               <button className="tr" onClick={saveKeyAndRetry} disabled={savingKey || !keyInput.trim()}>{savingKey ? "…" : t("saveTranslate")}</button>
             </div>
           </div>
@@ -1000,6 +1015,12 @@ const CSS = `
 .lockcard p{ color:var(--mist-dim); font-size:13.5px; margin:10px 0 18px; }
 .lockcard input{ width:100%; background:var(--night-2); border:1px solid var(--line); border-radius:12px; padding:13px 15px; color:#eef1f6; font-size:16px; outline:0; font-family:var(--ui); text-align:center; }
 .lockcard input:focus{ border-color:var(--rose); }
+.lockcard .pwwrap{ position:relative; margin-top:10px; }
+.lockcard .pwwrap input{ text-align:left; padding-right:70px; margin-top:0; }
+.lockcard .pweye{ position:absolute; right:6px; top:50%; transform:translateY(-50%); width:auto; margin:0; background:var(--night-3); border:1px solid var(--line); color:var(--mist); border-radius:8px; padding:7px 11px; font-size:12px; font-weight:500; cursor:pointer; }
+.pwfield{ position:relative; }
+.pwfield input{ padding-right:70px; }
+.pwfield .pweye{ position:absolute; right:6px; top:50%; transform:translateY(-50%); background:var(--night-3); border:1px solid var(--line); color:var(--mist); border-radius:8px; padding:7px 11px; font-size:12px; font-weight:500; cursor:pointer; }
 .lockcard .welcomesel{ width:100%; background:var(--night-2); border:1px solid var(--line); border-radius:12px; padding:13px 15px; color:#eef1f6; font-size:16px; outline:0; font-family:var(--ui); } .lockcard .welcomesel:focus{ border-color:var(--rose); }
 .lockcard .lockerr{ color:#e8938a; font-size:12.5px; margin-top:10px; }
 .lockcard .locknote{ color:#8fd49a; font-size:12.5px; margin-top:10px; line-height:1.5; }
