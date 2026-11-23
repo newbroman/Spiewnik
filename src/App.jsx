@@ -183,6 +183,21 @@ function ListView({ songs, onOpen, onAdd }) {
   );
 }
 
+// Load the YouTube IFrame API once, so we can read playback position for auto-scroll.
+function loadYTApi() {
+  if (window.YT && window.YT.Player) return Promise.resolve();
+  if (!window.__ytApiPromise) {
+    window.__ytApiPromise = new Promise((res) => {
+      const prev = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => { if (prev) { try { prev(); } catch {} } res(); };
+      const s = document.createElement("script");
+      s.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(s);
+    });
+  }
+  return window.__ytApiPromise;
+}
+
 const PLAYER_KEY = "spiewnik.player.v1";
 
 function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
@@ -223,6 +238,30 @@ function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
   const avail = [ytOk && "youtube", spOk && "spotify"].filter(Boolean);
   const eff = avail.includes(source) ? source : avail[0];
   const pick = (s) => { setSource(s); try { localStorage.setItem(PLAYER_KEY, s); } catch {} };
+
+  // Auto-scroll: follow the YouTube video's progress, scrolling the lyrics to match.
+  const [autoScroll, setAutoScroll] = useState(false);
+  const playerRef = useRef(null);
+  const autoRef = useRef(false);
+  useEffect(() => { autoRef.current = autoScroll; }, [autoScroll]);
+  useEffect(() => {
+    if (eff !== "youtube" || !ytOk) return;
+    let cancelled = false;
+    const timer = setInterval(() => {
+      const p = playerRef.current;
+      if (!autoRef.current || !p || typeof p.getCurrentTime !== "function") return;
+      try {
+        if (typeof p.getPlayerState === "function" && p.getPlayerState() !== 1) return; // 1 = playing
+        const cur = p.getCurrentTime(), dur = p.getDuration();
+        if (!dur || !isFinite(dur)) return;
+        const frac = Math.max(0, Math.min(1, cur / dur));
+        const max = document.documentElement.scrollHeight - window.innerHeight;
+        window.scrollTo({ top: Math.round(frac * max), behavior: "smooth" });
+      } catch {}
+    }, 1200);
+    loadYTApi().then(() => { if (!cancelled) { try { playerRef.current = new window.YT.Player("ytplayer"); } catch {} } });
+    return () => { cancelled = true; clearInterval(timer); playerRef.current = null; };
+  }, [eff, ytOk, yt]);
   return (
     <>
       <div className="rhead2">
@@ -234,16 +273,24 @@ function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
       </div>
       {avail.length > 0 && (
         <div className="playerbox">
-          {avail.length > 1 && (
-            <div className="srctoggle">
-              <button className={eff === "youtube" ? "on" : ""} onClick={() => pick("youtube")}>YouTube</button>
-              <button className={eff === "spotify" ? "on" : ""} onClick={() => pick("spotify")}>Spotify</button>
-            </div>
-          )}
+          <div className="plcontrols">
+            {avail.length > 1 ? (
+              <div className="srctoggle">
+                <button className={eff === "youtube" ? "on" : ""} onClick={() => pick("youtube")}>YouTube</button>
+                <button className={eff === "spotify" ? "on" : ""} onClick={() => pick("spotify")}>Spotify</button>
+              </div>
+            ) : <span />}
+            {eff === "youtube" && (
+              <button className={"autoscroll" + (autoScroll ? " on" : "")} onClick={() => setAutoScroll((v) => !v)}>
+                {autoScroll ? "Auto-scroll ●" : "Auto-scroll"}
+              </button>
+            )}
+          </div>
           {eff === "youtube" ? (
             <iframe
+              key={yt} id="ytplayer"
               className="yt" title="YouTube player"
-              src={`https://www.youtube.com/embed/${yt}?rel=0`}
+              src={`https://www.youtube.com/embed/${yt}?rel=0&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`}
               loading="lazy" allowFullScreen
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             />
@@ -482,7 +529,10 @@ const CSS = `
 .rbar .ttl{ flex:1; min-width:0; } .rbar .ttl h2{ margin:0; font-family:var(--display); font-weight:900; font-size:19px; color:#f3ede1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .rbar .ttl p{ margin:2px 0 0; font-size:12px; color:var(--mist-dim); }
 .rhead2{ position:sticky; top:0; z-index:4; background:var(--night); box-shadow:0 12px 20px -14px rgba(0,0,0,.6); }
 .playerbox{ padding:12px 16px 12px; }
-.srctoggle{ display:flex; gap:6px; margin-bottom:9px; }
+.plcontrols{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:9px; }
+.autoscroll{ background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:8px; padding:6px 13px; font-size:12px; font-family:var(--ui); font-weight:500; cursor:pointer; white-space:nowrap; }
+.autoscroll.on{ background:var(--rose); border-color:var(--rose); color:#20140f; }
+.srctoggle{ display:flex; gap:6px; }
 .srctoggle button{ background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:8px; padding:6px 13px; font-size:12px; font-family:var(--ui); font-weight:500; cursor:pointer; }
 .srctoggle button.on{ background:var(--rose); border-color:var(--rose); color:#20140f; }
 .yt{ display:block; width:100%; aspect-ratio:16/9; max-height:40vh; border:0; border-radius:12px; background:#000; }
