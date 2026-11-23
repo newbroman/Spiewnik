@@ -183,21 +183,6 @@ function ListView({ songs, onOpen, onAdd }) {
   );
 }
 
-// Load the YouTube IFrame API once, so we can read playback position for auto-scroll.
-function loadYTApi() {
-  if (window.YT && window.YT.Player) return Promise.resolve();
-  if (!window.__ytApiPromise) {
-    window.__ytApiPromise = new Promise((res) => {
-      const prev = window.onYouTubeIframeAPIReady;
-      window.onYouTubeIframeAPIReady = () => { if (prev) { try { prev(); } catch {} } res(); };
-      const s = document.createElement("script");
-      s.src = "https://www.youtube.com/iframe_api";
-      document.head.appendChild(s);
-    });
-  }
-  return window.__ytApiPromise;
-}
-
 const PLAYER_KEY = "spiewnik.player.v1";
 
 function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
@@ -239,29 +224,26 @@ function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
   const eff = avail.includes(source) ? source : avail[0];
   const pick = (s) => { setSource(s); try { localStorage.setItem(PLAYER_KEY, s); } catch {} };
 
-  // Auto-scroll: follow the YouTube video's progress, scrolling the lyrics to match.
+  // Auto-scroll: gently scroll the lyrics at an adjustable speed (teleprompter-style).
   const [autoScroll, setAutoScroll] = useState(false);
-  const playerRef = useRef(null);
-  const autoRef = useRef(false);
-  useEffect(() => { autoRef.current = autoScroll; }, [autoScroll]);
+  const [scrollSpeed, setScrollSpeed] = useState(8); // pixels per second
   useEffect(() => {
-    if (eff !== "youtube" || !ytOk) return;
-    let cancelled = false;
-    const timer = setInterval(() => {
-      const p = playerRef.current;
-      if (!autoRef.current || !p || typeof p.getCurrentTime !== "function") return;
-      try {
-        if (typeof p.getPlayerState === "function" && p.getPlayerState() !== 1) return; // 1 = playing
-        const cur = p.getCurrentTime(), dur = p.getDuration();
-        if (!dur || !isFinite(dur)) return;
-        const frac = Math.max(0, Math.min(1, cur / dur));
+    if (!autoScroll) return;
+    let raf, last = performance.now(), acc = 0;
+    const step = (now) => {
+      acc += ((now - last) / 1000) * scrollSpeed; last = now;
+      if (acc >= 1) {
+        const px = Math.floor(acc); acc -= px;
         const max = document.documentElement.scrollHeight - window.innerHeight;
-        window.scrollTo({ top: Math.round(frac * max), behavior: "smooth" });
-      } catch {}
-    }, 1200);
-    loadYTApi().then(() => { if (!cancelled) { try { playerRef.current = new window.YT.Player("ytplayer"); } catch {} } });
-    return () => { cancelled = true; clearInterval(timer); playerRef.current = null; };
-  }, [eff, ytOk, yt]);
+        const next = Math.min(max, window.scrollY + px);
+        window.scrollTo(0, next);
+        if (next >= max) { setAutoScroll(false); return; } // stop at the end
+      }
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [autoScroll, scrollSpeed]);
   return (
     <>
       <div className="rhead2">
@@ -280,17 +262,23 @@ function Reader({ song, onBack, onEdit, onPractice, onFoundMedia }) {
                 <button className={eff === "spotify" ? "on" : ""} onClick={() => pick("spotify")}>Spotify</button>
               </div>
             ) : <span />}
-            {eff === "youtube" && (
+            <div className="ascroll">
+              {autoScroll && (
+                <>
+                  <button className="asstep" aria-label="Slower" onClick={() => setScrollSpeed((s) => Math.max(2, s - 3))}>−</button>
+                  <button className="asstep" aria-label="Faster" onClick={() => setScrollSpeed((s) => Math.min(44, s + 3))}>+</button>
+                </>
+              )}
               <button className={"autoscroll" + (autoScroll ? " on" : "")} onClick={() => setAutoScroll((v) => !v)}>
                 {autoScroll ? "Auto-scroll ●" : "Auto-scroll"}
               </button>
-            )}
+            </div>
           </div>
           {eff === "youtube" ? (
             <iframe
-              key={yt} id="ytplayer"
+              key={yt}
               className="yt" title="YouTube player"
-              src={`https://www.youtube.com/embed/${yt}?rel=0&enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`}
+              src={`https://www.youtube.com/embed/${yt}?rel=0`}
               loading="lazy" allowFullScreen
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             />
@@ -530,6 +518,8 @@ const CSS = `
 .rhead2{ position:sticky; top:0; z-index:4; background:var(--night); box-shadow:0 12px 20px -14px rgba(0,0,0,.6); }
 .playerbox{ padding:12px 16px 12px; }
 .plcontrols{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:9px; }
+.ascroll{ display:flex; align-items:center; gap:6px; }
+.asstep{ width:28px; height:28px; flex:none; background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:7px; font-size:16px; line-height:1; cursor:pointer; }
 .autoscroll{ background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:8px; padding:6px 13px; font-size:12px; font-family:var(--ui); font-weight:500; cursor:pointer; white-space:nowrap; }
 .autoscroll.on{ background:var(--rose); border-color:var(--rose); color:#20140f; }
 .srctoggle{ display:flex; gap:6px; }
