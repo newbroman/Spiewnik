@@ -1,5 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { supabase, setAccessToken, apiHeaders } from "./supabase.js";
+import { makeT } from "./i18n.js";
+
+// UI language follows the user's chosen target language, via this context.
+const I18n = React.createContext(makeT("English"));
+const useT = () => React.useContext(I18n);
 
 // ============================================================================
 //  Śpiewnik — learn a language through song lyrics, line by line.
@@ -167,18 +172,18 @@ export default function App() {
   }
 
   if (session === undefined) {
-    return <Shell><div className="splash">Śpiewnik…</div></Shell>;
+    return <Shell lang={targetLang}><div className="splash">Śpiewnik…</div></Shell>;
   }
   if (session === null) {
-    return <Shell><Auth flash={flash} /><Toast toast={toast} /></Shell>;
+    return <Shell lang={targetLang}><Auth flash={flash} /><Toast toast={toast} /></Shell>;
   }
   // Brand-new account: ask once which language to translate into.
   if (profileLoaded && !loading && profile === null && songs.length === 0) {
-    return <Shell><Welcome onPick={saveTargetLang} /><Toast toast={toast} /></Shell>;
+    return <Shell lang={targetLang}><Welcome onPick={saveTargetLang} /><Toast toast={toast} /></Shell>;
   }
 
   return (
-    <Shell>
+    <Shell lang={targetLang}>
       {view === "list" && (
         <ListView
           songs={songs} loading={loading} email={session.user.email}
@@ -212,11 +217,13 @@ export default function App() {
   );
 }
 
-function Shell({ children }) {
+function Shell({ lang, children }) {
   return (
     <div className="kl-root">
       <style>{CSS}</style>
-      <div className="app">{children}</div>
+      <I18n.Provider value={makeT(lang || "English")}>
+        <div className="app">{children}</div>
+      </I18n.Provider>
     </div>
   );
 }
@@ -226,6 +233,7 @@ function Toast({ toast }) {
 
 // ---- Sign in / sign up ------------------------------------------------------
 function Auth({ flash }) {
+  const t = useT();
   const [mode, setMode] = useState("signin"); // signin | signup
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
@@ -260,21 +268,21 @@ function Auth({ flash }) {
   return (
     <div className="lock">
       <div className="lockcard">
-        <div className="eyebrow">Learn a language through song</div>
+        <div className="eyebrow">{t("tagline")}</div>
         <h1>Śpiewnik</h1>
-        <p>{mode === "signup" ? "Create an account — your songs stay private to you." : "Sign in to your song library."}</p>
-        <input type="email" value={email} autoFocus placeholder="Email" autoComplete="email"
+        <p>{mode === "signup" ? t("subSignUp") : t("subSignIn")}</p>
+        <input type="email" value={email} autoFocus placeholder={t("email")} autoComplete="email"
           onChange={(e) => setEmail(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
-        <input type="password" value={pw} placeholder="Password" style={{ marginTop: 10 }}
+        <input type="password" value={pw} placeholder={t("password")} style={{ marginTop: 10 }}
           autoComplete={mode === "signup" ? "new-password" : "current-password"}
           onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
         {err && <div className="lockerr">{err}</div>}
         {note && <div className="locknote">{note}</div>}
         <button onClick={submit} disabled={busy}>
-          {busy ? "…" : mode === "signup" ? "Create account" : "Sign in"}
+          {busy ? "…" : mode === "signup" ? t("btnCreate") : t("btnSignIn")}
         </button>
         <button className="linkbtn" onClick={() => { setErr(""); setNote(""); setMode(mode === "signup" ? "signin" : "signup"); }}>
-          {mode === "signup" ? "Have an account? Sign in" : "New here? Create an account"}
+          {mode === "signup" ? t("toSignIn") : t("toSignUp")}
         </button>
       </div>
     </div>
@@ -283,19 +291,22 @@ function Auth({ flash }) {
 
 // ---- First-run welcome: pick the language to translate into ----------------
 function Welcome({ onPick }) {
+  const t = useT();
   const [lang, setLang] = useState("English");
   const [busy, setBusy] = useState(false);
   const go = async () => { if (busy) return; setBusy(true); await onPick(lang); };
+  // Preview the chosen language live as they pick it.
+  const tp = makeT(lang);
   return (
     <div className="lock">
       <div className="lockcard">
-        <div className="eyebrow">Welcome to Śpiewnik</div>
-        <h1>One quick thing</h1>
-        <p>Which language do you want your lyrics translated into? Pick your own first language — you can change it later in Settings.</p>
+        <div className="eyebrow">{tp("wEyebrow")}</div>
+        <h1>{tp("wTitle")}</h1>
+        <p>{tp("wBody")}</p>
         <select className="welcomesel" value={lang} onChange={(e) => setLang(e.target.value)}>
           {LANGS.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
         </select>
-        <button onClick={go} disabled={busy}>{busy ? "…" : "Continue"}</button>
+        <button onClick={go} disabled={busy}>{busy ? "…" : tp("cont")}</button>
       </div>
     </div>
   );
@@ -303,13 +314,14 @@ function Welcome({ onPick }) {
 
 // ---- Library list -----------------------------------------------------------
 function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, onSettings, onSignOut }) {
+  const t = useT();
   // Index by language, then by artist within each language.
   const byLang = [];
   songs.forEach((s) => {
     const L = s.language || "Other";
     let lg = byLang.find((x) => x.language === L);
     if (!lg) { lg = { language: L, artists: [] }; byLang.push(lg); }
-    const A = (s.artist && s.artist.trim()) || "Unknown artist";
+    const A = (s.artist && s.artist.trim()) || t("unknownArtist");
     let ar = lg.artists.find((x) => x.artist === A);
     if (!ar) { ar = { artist: A, items: [] }; lg.artists.push(ar); }
     ar.items.push(s);
@@ -322,23 +334,23 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, o
     <>
       <div className="top">
         <div className="toprow">
-          <div className="eyebrow">Your song library</div>
+          <div className="eyebrow">{t("libraryEyebrow")}</div>
           <div className="topbtns">
-            <button className="signout" onClick={onSettings}>Settings</button>
-            <button className="signout" onClick={onSignOut}>Sign out</button>
+            <button className="signout" onClick={onSettings}>{t("settings")}</button>
+            <button className="signout" onClick={onSignOut}>{t("signOut")}</button>
           </div>
         </div>
         <h1>Śpiewnik</h1>
         <p>{songs.length === 0
-          ? "Add your first song — any artist, any language — then read it line by line."
-          : `${done} of ${songs.length} filled in. Signed in as ${email}.`}</p>
+          ? t("emptyIntro")
+          : `${t("filled", { done, total: songs.length })} ${t("signedInAs", { email })}`}</p>
       </div>
       <div className="body">
         {loading ? (
-          <div className="emptylib">Loading your songs…</div>
+          <div className="emptylib">{t("loading")}</div>
         ) : songs.length === 0 ? (
           <div className="emptylib">
-            Nothing here yet.<br />Tap <b>Add a song</b> to start your library.
+            {t("nothingHere")}<br />{t("tapAddToStart")}
           </div>
         ) : (
           byLang.map((lg) => (
@@ -354,8 +366,8 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, o
                         <button key={s.id} className="song" onClick={() => onOpen(s.id)}>
                           <span className="num">{i + 1}</span>
                           <span className="meta">
-                            <h3>{s.title || "Untitled"}</h3>
-                            <p>{filled ? s.pl.split("\n").filter((l) => l.trim()).length + " lines" : "No lyrics yet — tap to add"}</p>
+                            <h3>{s.title || t("untitled")}</h3>
+                            <p>{filled ? t("lines", { n: s.pl.split("\n").filter((l) => l.trim()).length }) : t("noLyricsYet")}</p>
                           </span>
                           <span className={"dot " + (filled ? "full" : "empty")} />
                         </button>
@@ -367,7 +379,7 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, o
             </div>
           ))
         )}
-        <div className="addrow"><button className="add" onClick={onAdd}>+ Add a song</button></div>
+        <div className="addrow"><button className="add" onClick={onAdd}>{t("addSongPlus")}</button></div>
         {canImport && (
           <div className="addrow"><button className="importbtn" onClick={onImport}>⤓ Import my old Daria ze Śląska set</button></div>
         )}
@@ -378,6 +390,7 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, o
 
 // ---- Add a song (search, pick, or add manually) ----------------------------
 function AddSong({ onBack, onCreate }) {
+  const t = useT();
   const [language, setLanguage] = useState("Polish");
   const [q, setQ] = useState("");
   const [results, setResults] = useState([]);
@@ -412,11 +425,11 @@ function AddSong({ onBack, onCreate }) {
     <>
       <div className="rbar">
         <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
-        <div className="ttl"><h2>Add a song</h2><p>Search for it, or add it by hand</p></div>
+        <div className="ttl"><h2>{t("addTitle")}</h2><p>{t("addSub")}</p></div>
       </div>
       <div className="editor">
         <div className="addlang">
-          <label>Language of the song</label>
+          <label>{t("songLang")}</label>
           <select value={language} onChange={(e) => setLanguage(e.target.value)}>
             {LANGS.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
           </select>
@@ -424,11 +437,11 @@ function AddSong({ onBack, onCreate }) {
 
         {!manual ? (
           <>
-            <label className="searchlabel">Search for a song</label>
+            <label className="searchlabel">{t("searchHdr")}</label>
             <div className="searchrow">
-              <input value={q} autoFocus placeholder="Artist and/or song title"
+              <input value={q} autoFocus placeholder={t("searchPh")}
                 onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doSearch()} />
-              <button className="searchbtn" onClick={doSearch} disabled={busy || !q.trim()}>{busy ? "…" : "Search"}</button>
+              <button className="searchbtn" onClick={doSearch} disabled={busy || !q.trim()}>{busy ? "…" : t("search")}</button>
             </div>
 
             <div className="results">
@@ -442,24 +455,24 @@ function AddSong({ onBack, onCreate }) {
                 </button>
               ))}
               {searched && !busy && results.length === 0 && (
-                <div className="noresults">No matches. Check the spelling, or add it by hand below.</div>
+                <div className="noresults">{t("noMatches")}</div>
               )}
             </div>
 
-            <button className="manuallink" onClick={() => setManual(true)}>Can’t find it? Add manually →</button>
+            <button className="manuallink" onClick={() => setManual(true)}>{t("addManual")}</button>
           </>
         ) : (
           <>
             <div className="addform">
-              <div><label>Artist</label>
+              <div><label>{t("artist")}</label>
                 <input value={artist} placeholder="e.g. Daria ze Śląska" onChange={(e) => setArtist(e.target.value)} /></div>
-              <div><label>Title</label>
-                <input value={title} autoFocus placeholder="Song title" onChange={(e) => setTitle(e.target.value)}
+              <div><label>{t("title")}</label>
+                <input value={title} autoFocus placeholder={t("title")} onChange={(e) => setTitle(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && createManual()} /></div>
             </div>
             <div className="actions">
-              <button className="save" onClick={createManual} disabled={creating}>{creating ? "Adding…" : "Add & paste lyrics"}</button>
-              <button className="cancel" onClick={() => setManual(false)}>Back to search</button>
+              <button className="save" onClick={createManual} disabled={creating}>{creating ? t("adding") : t("addPaste")}</button>
+              <button className="cancel" onClick={() => setManual(false)}>{t("backSearch")}</button>
             </div>
           </>
         )}
@@ -470,6 +483,7 @@ function AddSong({ onBack, onCreate }) {
 
 // ---- Settings (your own DeepL key) -----------------------------------------
 function Settings({ profile, hasOwnKey, targetLang, onSave, onSaveTarget, onBack }) {
+  const t = useT();
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const used = profile?.trial_used || 0;
@@ -479,31 +493,31 @@ function Settings({ profile, hasOwnKey, targetLang, onSave, onSaveTarget, onBack
     <>
       <div className="rbar">
         <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
-        <div className="ttl"><h2>Settings</h2><p>Translation language & key</p></div>
+        <div className="ttl"><h2>{t("settings")}</h2><p>{t("settingsSub")}</p></div>
       </div>
       <div className="editor">
         <div className="setcard" style={{ marginBottom: 16 }}>
-          <h3>Translate into</h3>
-          <p className="setstate">The language your lyrics are translated and shown in. English by default — pick your own if you're learning from a different first language.</p>
+          <h3>{t("translateInto")}</h3>
+          <p className="setstate">{t("translateIntoBody")}</p>
           <select value={targetLang || "English"} onChange={(e) => onSaveTarget(e.target.value)}>
             {LANGS.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
           </select>
         </div>
         <div className="setcard">
-          <h3>Your DeepL key</h3>
+          <h3>{t("yourKey")}</h3>
           {hasOwnKey ? (
-            <p className="setstate ok">✓ Your own DeepL key is set. Your translations run on it, with no limit.</p>
+            <p className="setstate ok">{t("keySetOk")}</p>
           ) : (
-            <p className="setstate">You're on the shared key — {used} free translation{used === 1 ? "" : "s"} used. Add your own free key to translate without limit, on your own quota.</p>
+            <p className="setstate">{t("onShared", { used })}</p>
           )}
-          <input type="password" value={key} placeholder={hasOwnKey ? "Enter a new key to replace it" : "Paste your DeepL API key"}
+          <input type="password" value={key} placeholder={hasOwnKey ? t("enterNewKey") : t("pasteApiKey")}
             onChange={(e) => setKey(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
           <div className="setbtns">
-            <button className="save" onClick={save} disabled={busy || !key.trim()}>{busy ? "Saving…" : "Save key"}</button>
-            {hasOwnKey && <button className="cancel" onClick={remove} disabled={busy}>Remove</button>}
+            <button className="save" onClick={save} disabled={busy || !key.trim()}>{busy ? t("saving") : t("saveKey")}</button>
+            {hasOwnKey && <button className="cancel" onClick={remove} disabled={busy}>{t("remove")}</button>}
           </div>
-          <a className="findbtn" href="https://www.deepl.com/pro-api" target="_blank" rel="noreferrer">Get a free DeepL key ↗</a>
-          <p className="hint2">Free DeepL keys give 500,000 characters a month — plenty for lyrics. Your key is stored privately in your account and only ever used for your own translations.</p>
+          <a className="findbtn" href="https://www.deepl.com/pro-api" target="_blank" rel="noreferrer">{t("getKey")}</a>
+          <p className="hint2">{t("deeplHint")}</p>
         </div>
       </div>
     </>
@@ -512,6 +526,7 @@ function Settings({ profile, hasOwnKey, targetLang, onSave, onSaveTarget, onBack
 
 // ---- Reader (side-by-side + player + auto-scroll) ---------------------------
 function Reader({ song, targetLang, onBack, onEdit, onPractice, onFoundMedia }) {
+  const t = useT();
   const pl = (song.pl || "").split("\n");
   const en = (song.en || "").split("\n");
   const n = Math.max(pl.length, en.length);
@@ -573,8 +588,8 @@ function Reader({ song, targetLang, onBack, onEdit, onPractice, onFoundMedia }) 
         <div className="rbar">
           <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
           <div className="ttl"><h2>{song.title}</h2><p>{[song.artist, song.language].filter(Boolean).join(" · ")}</p></div>
-          {has ? <button className="icbtn" onClick={onPractice}>Practice</button> : null}
-          <button className="icbtn accent" onClick={onEdit}>Edit</button>
+          {has ? <button className="icbtn" onClick={onPractice}>{t("practice")}</button> : null}
+          <button className="icbtn accent" onClick={onEdit}>{t("edit")}</button>
         </div>
         {avail.length > 0 && (
           <div className="playerbox">
@@ -593,7 +608,7 @@ function Reader({ song, targetLang, onBack, onEdit, onPractice, onFoundMedia }) 
                   </>
                 )}
                 <button className={"autoscroll" + (autoScroll ? " on" : "")} onClick={() => setAutoScroll((v) => !v)}>
-                  {autoScroll ? "Auto-scroll ●" : "Auto-scroll"}
+                  {autoScroll ? t("autoScroll") + " ●" : t("autoScroll")}
                 </button>
               </div>
             </div>
@@ -612,7 +627,7 @@ function Reader({ song, targetLang, onBack, onEdit, onPractice, onFoundMedia }) 
       <div className="sheet">
         <div className="sheethead"><span>{song.language}</span><span>{targetLang || "English"}</span></div>
         {!has ? (
-          <div className="emptysheet">No lyrics here yet.<br />Tap <b>Edit</b> to paste the original, then Auto-translate or type the English.</div>
+          <div className="emptysheet">{t("noLyricsHere")}<br />{t("tapEditToPaste")}</div>
         ) : (
           <div className="grid">
             {Array.from({ length: n }).map((_, i) => {
@@ -641,6 +656,7 @@ function grade(target, heard) {
 }
 
 function Practice({ song, onBack }) {
+  const tr = useT();
   const bcp = langOf(song.language).bcp;
   const lines = React.useMemo(() => {
     const pl = (song.pl || "").split("\n");
@@ -662,9 +678,9 @@ function Practice({ song, onBack }) {
     <>
       <div className="rbar">
         <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
-        <div className="ttl"><h2>Practice</h2><p>{song.title}</p></div>
+        <div className="ttl"><h2>{tr("practice")}</h2><p>{song.title}</p></div>
       </div>
-      <div className="prac"><p className="pracnote">No lyrics to practise yet — add them under Edit first.</p></div>
+      <div className="prac"><p className="pracnote">{tr("noPracticeYet")}</p></div>
     </>
   );
 
@@ -695,19 +711,19 @@ function Practice({ song, onBack }) {
     <>
       <div className="rbar">
         <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
-        <div className="ttl"><h2>Practice</h2><p>{song.title} · {idx + 1}/{lines.length}</p></div>
+        <div className="ttl"><h2>{tr("practice")}</h2><p>{song.title} · {idx + 1}/{lines.length}</p></div>
       </div>
       <div className="prac">
         <div className="pracline">
           {score ? score.marks.map((m, i) => <span key={i} className={m.ok ? "wok" : "wno"}>{m.w}{" "}</span>) : line.pl}
         </div>
         {showEn && <div className="pracen">{line.en || "—"}</div>}
-        <button className="pracen-toggle" onClick={() => setShowEn((v) => !v)}>{showEn ? "Hide meaning" : "Show meaning"}</button>
+        <button className="pracen-toggle" onClick={() => setShowEn((v) => !v)}>{showEn ? tr("hideMeaning") : tr("showMeaning")}</button>
         <div className="pracbtns">
-          <button className="pracbtn" onClick={speak}>Listen</button>
+          <button className="pracbtn" onClick={speak}>{tr("listen")}</button>
           {Rec ? (
             <button className={"pracbtn mic" + (listening ? " on" : "")} onClick={listening ? stopListen : listen}>
-              {listening ? "Listening… stop" : "Speak"}
+              {listening ? tr("listeningStop") : tr("speak")}
             </button>
           ) : null}
         </div>
@@ -719,8 +735,8 @@ function Practice({ song, onBack }) {
         )}
         {!Rec && <p className="pracnote">Speaking feedback needs Chrome or an Android phone. You can still tap Listen and read along.</p>}
         <div className="pracnav">
-          <button className="navbtn" onClick={() => go(-1)} disabled={idx === 0}>← Prev</button>
-          <button className="navbtn" onClick={() => go(1)} disabled={idx === lines.length - 1}>Next →</button>
+          <button className="navbtn" onClick={() => go(-1)} disabled={idx === 0}>{tr("prev")}</button>
+          <button className="navbtn" onClick={() => go(1)} disabled={idx === lines.length - 1}>{tr("next")}</button>
         </div>
       </div>
     </>
@@ -729,6 +745,7 @@ function Practice({ song, onBack }) {
 
 // ---- Editor -----------------------------------------------------------------
 function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang, onBack, onSave, onRemove, flash }) {
+  const t = useT();
   const [title, setTitle] = useState(song.title);
   const [artist, setArtist] = useState(song.artist || "");
   const [language, setLanguage] = useState(song.language || "Polish");
@@ -803,13 +820,13 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
     <>
       <div className="rbar">
         <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
-        <div className="ttl"><h2>Edit</h2><p>{song.title}</p></div>
+        <div className="ttl"><h2>{t("edit")}</h2><p>{song.title}</p></div>
       </div>
       <div className="editor">
         <div className="meta3">
-          <div><label>Title</label><input value={title} onChange={(e) => setTitle(e.target.value)} /></div>
-          <div><label>Artist</label><input value={artist} onChange={(e) => setArtist(e.target.value)} /></div>
-          <div><label>Language</label>
+          <div><label>{t("title")}</label><input value={title} onChange={(e) => setTitle(e.target.value)} /></div>
+          <div><label>{t("artist")}</label><input value={artist} onChange={(e) => setArtist(e.target.value)} /></div>
+          <div><label>{t("language")}</label>
             <select value={language} onChange={(e) => setLanguage(e.target.value)}>
               {LANGS.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
             </select>
@@ -817,19 +834,19 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
         </div>
         <div className="cols">
           <div>
-            <label>{language} <span className="opt">paste the whole lyric</span></label>
-            <textarea value={pl} onChange={(e) => setPl(e.target.value)} placeholder={fetching ? "Looking for the lyrics…" : "Paste the full lyric here —\nall the lines at once."} />
+            <label>{language} <span className="opt">{t("pasteWhole")}</span></label>
+            <textarea value={pl} onChange={(e) => setPl(e.target.value)} placeholder={fetching ? t("fetching") : t("pasteWhole")} />
             <div className="lyrrow">
-              <a className="findbtn" href={findUrl} target="_blank" rel="noreferrer">🔍 Find lyrics on Google ↗</a>
-              <button className="fetch" onClick={() => fetchLyrics(false)} disabled={fetching}>{fetching ? "Fetching…" : "⤓ Auto-fetch"}</button>
+              <a className="findbtn" href={findUrl} target="_blank" rel="noreferrer">{t("findGoogle")}</a>
+              <button className="fetch" onClick={() => fetchLyrics(false)} disabled={fetching}>{fetching ? t("fetching") : t("autoFetch")}</button>
             </div>
-            <p className="findhint">Opens a search for this song — copy the lyric from the results (e.g. tekstowo.pl) and paste it above.</p>
+            <p className="findhint">{t("findHint")}</p>
           </div>
           <div>
-            <label>{targetLang || "English"} <span className="opt">auto or type</span></label>
-            <textarea className="en" value={en} onChange={(e) => setEn(e.target.value)} placeholder={`Auto-translate, or type the ${targetLang || "English"}\nlined up with the original.`} />
+            <label>{targetLang || "English"} <span className="opt">{t("autoOrType")}</span></label>
+            <textarea className="en" value={en} onChange={(e) => setEn(e.target.value)} placeholder={t("autoOrType")} />
             <div className="trrow">
-              <button className="tr" onClick={autoTranslate} disabled={busy}>{busy ? "Translating…" : "⟳ Auto-translate"}</button>
+              <button className="tr" onClick={autoTranslate} disabled={busy}>{busy ? t("translating") : t("autoTranslate")}</button>
               <select value={provider} onChange={(e) => setProvider(e.target.value)} aria-label="Translation provider">
                 <option value="deepl">DeepL</option>
                 <option value="google">Google</option>
@@ -839,21 +856,21 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
         </div>
         {trialOut && !hasOwnKey && (
           <div className="upsell">
-            <h4>Free translations used up</h4>
-            <p>You've used the shared translations. Add your own free DeepL key to keep going — it takes a couple of minutes and gives 500,000 characters a month.</p>
-            <a className="findbtn" href="https://www.deepl.com/pro-api" target="_blank" rel="noreferrer">Get a free DeepL key ↗</a>
+            <h4>{t("trialTitle")}</h4>
+            <p>{t("trialBody")}</p>
+            <a className="findbtn" href="https://www.deepl.com/pro-api" target="_blank" rel="noreferrer">{t("getKey")}</a>
             <div className="upsellrow">
-              <input type="password" value={keyInput} placeholder="Paste your DeepL key" onChange={(e) => setKeyInput(e.target.value)} />
-              <button className="tr" onClick={saveKeyAndRetry} disabled={savingKey || !keyInput.trim()}>{savingKey ? "…" : "Save & translate"}</button>
+              <input type="password" value={keyInput} placeholder={t("pasteKey")} onChange={(e) => setKeyInput(e.target.value)} />
+              <button className="tr" onClick={saveKeyAndRetry} disabled={savingKey || !keyInput.trim()}>{savingKey ? "…" : t("saveTranslate")}</button>
             </div>
           </div>
         )}
-        <p className="hint2">Auto-translate goes line-for-line, so the columns stay aligned. Machine translation is a rough first draft — fixing it by hand is where the learning is.</p>
+        <p className="hint2">{t("translateHint")}</p>
         <div className="actions">
-          <button className="save" onClick={() => onSave({ title: title.trim() || song.title, artist: artist.trim(), language, pl, en })}>Save</button>
-          <button className="cancel" onClick={onBack}>Cancel</button>
+          <button className="save" onClick={() => onSave({ title: title.trim() || song.title, artist: artist.trim(), language, pl, en })}>{t("save")}</button>
+          <button className="cancel" onClick={onBack}>{t("cancel")}</button>
         </div>
-        <button className="danger" onClick={onRemove}>Remove this song</button>
+        <button className="danger" onClick={onRemove}>{t("removeSong")}</button>
       </div>
     </>
   );
