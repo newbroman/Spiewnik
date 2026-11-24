@@ -963,6 +963,7 @@ function Practice({ song, onBack }) {
   const [ready, setReady] = useState(false);     // mic actually live → "Speak now"
   const [countdown, setCountdown] = useState(null);
   const [recUrl, setRecUrl] = useState(null);     // recording of the user's own voice
+  const [recording, setRecording] = useState(false);
   const [showEn, setShowEn] = useState(false);
   const recRef = useRef(null);
   const mediaRef = useRef(null);
@@ -1003,42 +1004,48 @@ function Practice({ song, onBack }) {
   };
   const clearRec = () => { if (recUrl) { try { URL.revokeObjectURL(recUrl); } catch {} setRecUrl(null); } };
 
-  const startCapture = async () => {
+  // Rating uses SpeechRecognition ONLY. On mobile the speech API and a
+  // MediaRecorder can't both hold the mic, so recording is a separate action.
+  const startCapture = () => {
     if (!Rec) return;
-    setHeard(""); setScore(null); clearRec(); setListening(true); setReady(false);
-    // Record the voice so the user can play it back.
+    setHeard(""); setScore(null); setListening(true); setReady(false);
+    const rec = new Rec(); recRef.current = rec;
+    rec.lang = bcp; rec.interimResults = false; rec.maxAlternatives = 1;
+    rec.onstart = () => setReady(true);         // mic truly live → cue the user
+    rec.onresult = (e) => { const t = e.results[0][0].transcript; setHeard(t); setScore(grade(line.pl, t)); };
+    rec.onerror = () => { setReady(false); };
+    rec.onend = () => { setListening(false); setReady(false); };
+    try { rec.start(); } catch { setListening(false); setReady(false); }
+  };
+
+  // Self-recording (for "hear yourself") — independent of rating, never at the same time.
+  const toggleRecord = async () => {
+    if (recording) {
+      try { if (mediaRef.current && mediaRef.current.state !== "inactive") mediaRef.current.stop(); } catch {}
+      setRecording(false);
+      return;
+    }
+    if (listening || countdown !== null) return;
+    clearRec();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      chunksRef.current = [];
-      const mr = new MediaRecorder(stream);
-      mediaRef.current = mr;
+      streamRef.current = stream; chunksRef.current = [];
+      const mr = new MediaRecorder(stream); mediaRef.current = mr;
       mr.ondataavailable = (e) => { if (e.data && e.data.size) chunksRef.current.push(e.data); };
       mr.onstop = () => {
         try {
           const blob = new Blob(chunksRef.current, { type: mediaRef.current?.mimeType || "audio/webm" });
           if (blob.size) setRecUrl(URL.createObjectURL(blob));
         } catch {}
-        try { streamRef.current?.getTracks().forEach((tr) => tr.stop()); } catch {}
+        try { streamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
       };
-      mr.start();
-    } catch {}
-    // Transcribe + grade against the line.
-    const rec = new Rec(); recRef.current = rec;
-    rec.lang = bcp; rec.interimResults = false; rec.maxAlternatives = 1;
-    rec.onstart = () => setReady(true);         // mic truly live → cue the user
-    rec.onresult = (e) => { const t = e.results[0][0].transcript; setHeard(t); setScore(grade(line.pl, t)); };
-    rec.onerror = () => { setReady(false); };
-    rec.onend = () => {
-      setListening(false); setReady(false);
-      try { if (mediaRef.current && mediaRef.current.state !== "inactive") mediaRef.current.stop(); } catch {}
-    };
-    try { rec.start(); } catch { setListening(false); setReady(false); }
+      mr.start(); setRecording(true);
+    } catch { setRecording(false); }
   };
 
   const beginListen = () => {
-    if (listening || countdown !== null || !Rec) return;
-    setHeard(""); setScore(null); clearRec();
+    if (listening || countdown !== null || recording || !Rec) return;
+    setHeard(""); setScore(null);
     let n = 3;
     setCountdown(n);
     cdRef.current = setInterval(() => {
@@ -1048,9 +1055,17 @@ function Practice({ song, onBack }) {
     }, 750);
   };
 
-  const stopListen = () => { stopAll(); setCountdown(null); setListening(false); setReady(false); };
+  const stopListen = () => {
+    try { clearInterval(cdRef.current); } catch {}
+    try { recRef.current?.stop(); } catch {}
+    setCountdown(null); setListening(false); setReady(false);
+  };
   const playBack = () => { if (recUrl) { try { const a = new Audio(recUrl); a.play(); } catch {} } };
-  const go = (d) => { stopListen(); setHeard(""); setScore(null); setShowEn(false); clearRec(); setIdx((i) => Math.min(lines.length - 1, Math.max(0, i + d))); };
+  const go = (d) => {
+    stopAll(); setCountdown(null); setListening(false); setReady(false); setRecording(false);
+    setHeard(""); setScore(null); setShowEn(false); clearRec();
+    setIdx((i) => Math.min(lines.length - 1, Math.max(0, i + d)));
+  };
 
   return (
     <>
@@ -1072,10 +1087,15 @@ function Practice({ song, onBack }) {
         <div className="pracbtns">
           <button className="pracbtn" onClick={speak}>{tr("listen")}</button>
           {Rec ? (
-            <button className={"pracbtn mic" + (listening ? " on" : "")} onClick={listening ? stopListen : beginListen} disabled={countdown !== null}>
+            <button className={"pracbtn mic" + (listening ? " on" : "")} onClick={listening ? stopListen : beginListen} disabled={countdown !== null || recording}>
               {countdown !== null ? tr("getReady") : (listening ? tr("listeningStop") : tr("speak"))}
             </button>
           ) : null}
+        </div>
+        <div className="pracbtns">
+          <button className={"pracbtn" + (recording ? " on" : "")} onClick={toggleRecord} disabled={listening || countdown !== null}>
+            {recording ? tr("recStop") : tr("recSelf")}
+          </button>
           {recUrl && <button className="pracbtn" onClick={playBack}>{tr("hearYourself")}</button>}
         </div>
         {heard && (
@@ -1399,6 +1419,7 @@ const CSS = `
 .pracbtns{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin:28px 0 6px; }
 .pracbtn{ background:var(--night-2); border:1px solid var(--line); color:#eef1f6; border-radius:12px; padding:13px 24px; font-size:15px; font-family:var(--ui); font-weight:500; cursor:pointer; }
 .pracbtn.mic.on{ background:var(--rose); border-color:var(--rose); color:#20140f; }
+.pracbtn.on{ background:var(--rose); border-color:var(--rose); color:#20140f; }
 .pracfb{ text-align:center; margin:20px 0 4px; }
 .pracpct{ font-family:var(--display); font-weight:900; font-size:32px; color:#e8938a; }
 .pracpct[data-good="true"]{ color:#8fd49a; }
