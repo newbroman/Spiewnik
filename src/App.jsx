@@ -42,6 +42,17 @@ const LANGS = [
 ];
 const langOf = (name) => LANGS.find((l) => l.name === name) || LANGS[0];
 
+// Native word for "song" in each song language — appended to a web search to
+// broaden it beyond the catalogue (e.g. "Kaśka Sochocka piosenka").
+const SONG_WORD = {
+  English: "song", Polish: "piosenka", Spanish: "canción", French: "chanson",
+  German: "Lied", Italian: "canzone", Portuguese: "canção", Dutch: "lied",
+  Russian: "песня", Ukrainian: "пісня", Czech: "píseň", Swedish: "låt",
+  Norwegian: "sang", Danish: "sang", Finnish: "laulu", Greek: "τραγούδι",
+  Turkish: "şarkı", Japanese: "歌", Korean: "노래", Chinese: "歌曲",
+};
+const songWordOf = (name) => SONG_WORD[name] || "song";
+
 const PLAYER_KEY = "spiewnik.player.v1";
 const PROVIDER_KEY = "spiewnik.provider.v1";
 
@@ -455,6 +466,8 @@ function AddSong({ onBack, onCreate }) {
     setCreating(true);
     await onCreate({ language, artist: artist.trim(), album: album.trim(), title: title.trim() });
   }
+  const webUrl = "https://www.google.com/search?q=" +
+    encodeURIComponent(`${q.trim()} ${songWordOf(language)}`.trim());
 
   return (
     <>
@@ -493,6 +506,13 @@ function AddSong({ onBack, onCreate }) {
                 <div className="noresults">{t("noMatches")}</div>
               )}
             </div>
+
+            {q.trim() && (
+              <div className="webfindwrap">
+                <a className="webfind" href={webUrl} target="_blank" rel="noreferrer">{t("webSearch")}</a>
+                <p className="webfindhint">{t("webSearchHint")}</p>
+              </div>
+            )}
 
             <button className="manuallink" onClick={() => setManual(true)}>{t("addManual")}</button>
           </>
@@ -1133,6 +1153,9 @@ const CSS = `
 .pickarrow{ flex:none; color:var(--rose); font-size:18px; font-weight:600; }
 .noresults{ color:var(--mist-dim); font-size:13px; text-align:center; padding:20px; }
 .manuallink{ display:block; margin:18px auto 0; background:none; border:0; color:var(--rose); font-size:13px; cursor:pointer; }
+.webfindwrap{ margin-top:16px; text-align:center; }
+.webfind{ display:inline-block; background:var(--rose); color:#20140f; border:0; border-radius:10px; padding:9px 16px; font-family:var(--ui); font-size:13px; font-weight:600; cursor:pointer; text-decoration:none; }
+.webfindhint{ font-size:11.5px; color:var(--mist-dim); margin:8px 2px 0; line-height:1.5; }
 .editor input, .editor select{ width:100%; background:var(--night-2); border:1px solid var(--line); border-radius:11px; padding:11px 13px; color:#eef1f6; font-size:14px; outline:0; font-family:var(--ui); } .editor input:focus, .editor select:focus{ border-color:var(--rose); }
 .editor .hint2{ font-size:12px; color:var(--mist-dim); margin:12px 2px 0; line-height:1.5; }
 .editor .actions{ display:flex; gap:10px; margin-top:16px; }
