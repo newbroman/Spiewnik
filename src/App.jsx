@@ -341,8 +341,8 @@ function Welcome({ onPick }) {
 function ListView({ songs, loading, email, canImport, onImport, onOpen, onDelete, onAdd, onSettings, onSignOut, onHelp, onFeedback }) {
   const t = useT();
   const [confirmDel, setConfirmDel] = useState(null); // song id awaiting delete confirmation
-  const [openA, setOpenA] = useState({});   // expanded artists  (key: "language|artist")
-  const [openAl, setOpenAl] = useState({});  // expanded albums  (key: "language|artist|album")
+  const [selArtist, setSelArtist] = useState(null); // drilled-in artist: { language, key } or null
+  const [openAl, setOpenAl] = useState({});  // collapsed albums on the artist page (default open)
   // Index by language, then by artist within each language.
   const byLang = [];
   songs.forEach((s) => {
@@ -400,6 +400,10 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onDelete
     );
   };
 
+  // Drilled-in artist (master → detail): resolve the selection against the fresh grouping.
+  const curLg = selArtist ? byLang.find((l) => l.language === selArtist.language) : null;
+  const curAr = curLg ? curLg.artists.find((a) => a.key === selArtist.key) : null;
+
   return (
     <>
       <div className="top">
@@ -424,42 +428,40 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onDelete
           <div className="emptylib">
             {t("nothingHere")}<br />{t("tapAddToStart")}
           </div>
+        ) : curAr ? (
+          <>
+            <button className="artback" onClick={() => setSelArtist(null)}>← {t("allArtists")}</button>
+            <div className="albsect">{curLg.language}</div>
+            <h2 className="artpagetitle">{curAr.artist}</h2>
+            {curAr.albums.map((al) => {
+              const alKey = selArtist.language + "|" + selArtist.key + "|" + (al.key || "_loose");
+              const alOpen = openAl[alKey] === undefined ? true : openAl[alKey];
+              return (
+                <div key={al.key || "_loose"} className="albgroup">
+                  <button className={"albbtn" + (alOpen ? " open" : "")} aria-expanded={alOpen}
+                    onClick={() => setOpenAl((o) => ({ ...o, [alKey]: !(o[alKey] === undefined ? true : o[alKey]) }))}>
+                    <span className="chev">▸</span>
+                    <span className={"artname" + (al.key ? "" : " noalbum")}>{al.album || t("noAlbum")}</span>
+                    <span className="count">{al.items.length}</span>
+                  </button>
+                  {alOpen && <div className="songs">{al.items.map((s, i) => songRow(s, i))}</div>}
+                </div>
+              );
+            })}
+          </>
         ) : (
           byLang.map((lg) => (
             <div key={lg.language}>
               <div className="albsect">{lg.language}</div>
               {lg.artists.map((ar) => {
-                const aKey = lg.language + "|" + ar.key;
-                const aOpen = !!openA[aKey];
                 const nSongs = ar.albums.reduce((n, al) => n + al.items.length, 0);
                 return (
-                  <div key={ar.artist} className="artgroup">
-                    <button className={"artbtn" + (aOpen ? " open" : "")} aria-expanded={aOpen}
-                      onClick={() => setOpenA((o) => ({ ...o, [aKey]: !o[aKey] }))}>
-                      <span className="chev">▸</span>
-                      <span className="artname">{ar.artist}</span>
-                      <span className="count">{nSongs}</span>
-                    </button>
-                    {aOpen && (
-                      <div className="artbody">
-                        {ar.albums.map((al) => {
-                          const alKey = aKey + "|" + (al.key || "_loose");
-                          const alOpen = !!openAl[alKey];
-                          return (
-                            <div key={al.key || "_loose"} className="albgroup">
-                              <button className={"albbtn" + (alOpen ? " open" : "")} aria-expanded={alOpen}
-                                onClick={() => setOpenAl((o) => ({ ...o, [alKey]: !o[alKey] }))}>
-                                <span className="chev">▸</span>
-                                <span className={"artname" + (al.key ? "" : " noalbum")}>{al.album || t("noAlbum")}</span>
-                                <span className="count">{al.items.length}</span>
-                              </button>
-                              {alOpen && <div className="songs">{al.items.map((s, i) => songRow(s, i))}</div>}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
+                  <button key={ar.artist} className="artbtn drill"
+                    onClick={() => { setSelArtist({ language: lg.language, key: ar.key }); setConfirmDel(null); }}>
+                    <span className="artname">{ar.artist}</span>
+                    <span className="count">{nSongs}</span>
+                    <span className="chev go">›</span>
+                  </button>
                 );
               })}
             </div>
@@ -1145,8 +1147,12 @@ const CSS = `
 .artbtn .count, .albbtn .count{ flex:none; font-size:12px; color:var(--mist-dim); background:var(--night); border:1px solid var(--line); border-radius:999px; min-width:22px; text-align:center; padding:1px 7px; }
 .artbtn .chev, .albbtn .chev{ flex:none; color:var(--mist-dim); font-size:12px; transition:transform .16s; }
 .artbtn.open .chev, .albbtn.open .chev{ transform:rotate(90deg); }
+.artbtn{ margin-bottom:8px; }
+.artbtn.drill .chev.go{ transform:none; font-size:18px; }
+.artback{ display:inline-flex; align-items:center; gap:6px; background:none; border:0; color:var(--rose); font-size:14px; cursor:pointer; padding:4px 2px; margin:0 0 10px; }
+.artpagetitle{ font-size:22px; font-weight:600; margin:2px 0 14px; }
 .artbody{ display:flex; flex-direction:column; gap:8px; padding-left:12px; border-left:2px solid var(--line); margin:7px 0 4px 10px; }
-.albgroup{ display:flex; flex-direction:column; gap:8px; }
+.albgroup{ display:flex; flex-direction:column; gap:8px; margin-bottom:8px; }
 .albgroup .songs{ padding-left:10px; }
 .albbtn .artname.noalbum{ font-style:italic; color:var(--mist-dim); }
 
