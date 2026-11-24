@@ -54,6 +54,7 @@ const EN = {
   // practice
   showMeaning: "Show meaning", hideMeaning: "Hide meaning",
   listen: "Listen", speak: "Speak", listeningStop: "Listening… stop",
+  getReady: "Get ready…", speakNow: "Speak now", hearYourself: "Hear yourself",
   noPracticeYet: "No lyrics to practise yet — add them under Edit first.",
   prev: "← Prev", next: "Next →",
   // editor

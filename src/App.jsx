@@ -762,12 +762,26 @@ function Practice({ song, onBack }) {
   const [heard, setHeard] = useState("");
   const [score, setScore] = useState(null);
   const [listening, setListening] = useState(false);
+  const [ready, setReady] = useState(false);     // mic actually live → "Speak now"
+  const [countdown, setCountdown] = useState(null);
+  const [recUrl, setRecUrl] = useState(null);     // recording of the user's own voice
   const [showEn, setShowEn] = useState(false);
   const recRef = useRef(null);
+  const mediaRef = useRef(null);
+  const streamRef = useRef(null);
+  const chunksRef = useRef([]);
+  const cdRef = useRef(null);
   const Rec = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
   const line = lines[idx];
 
-  useEffect(() => () => { try { recRef.current?.stop(); window.speechSynthesis?.cancel(); } catch {} }, []);
+  const stopAll = () => {
+    try { clearInterval(cdRef.current); } catch {}
+    try { recRef.current?.stop(); } catch {}
+    try { if (mediaRef.current && mediaRef.current.state !== "inactive") mediaRef.current.stop(); } catch {}
+    try { streamRef.current?.getTracks().forEach((tr) => tr.stop()); } catch {}
+  };
+
+  useEffect(() => () => { stopAll(); try { window.speechSynthesis?.cancel(); } catch {} }, []);
 
   if (!line) return (
     <>
@@ -789,18 +803,56 @@ function Practice({ song, onBack }) {
       synth.speak(u);
     } catch {}
   };
-  const listen = () => {
+  const clearRec = () => { if (recUrl) { try { URL.revokeObjectURL(recUrl); } catch {} setRecUrl(null); } };
+
+  const startCapture = async () => {
     if (!Rec) return;
+    setHeard(""); setScore(null); clearRec(); setListening(true); setReady(false);
+    // Record the voice so the user can play it back.
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      chunksRef.current = [];
+      const mr = new MediaRecorder(stream);
+      mediaRef.current = mr;
+      mr.ondataavailable = (e) => { if (e.data && e.data.size) chunksRef.current.push(e.data); };
+      mr.onstop = () => {
+        try {
+          const blob = new Blob(chunksRef.current, { type: mediaRef.current?.mimeType || "audio/webm" });
+          if (blob.size) setRecUrl(URL.createObjectURL(blob));
+        } catch {}
+        try { streamRef.current?.getTracks().forEach((tr) => tr.stop()); } catch {}
+      };
+      mr.start();
+    } catch {}
+    // Transcribe + grade against the line.
     const rec = new Rec(); recRef.current = rec;
     rec.lang = bcp; rec.interimResults = false; rec.maxAlternatives = 1;
-    setHeard(""); setScore(null); setListening(true);
+    rec.onstart = () => setReady(true);         // mic truly live → cue the user
     rec.onresult = (e) => { const t = e.results[0][0].transcript; setHeard(t); setScore(grade(line.pl, t)); };
-    rec.onerror = () => setListening(false);
-    rec.onend = () => setListening(false);
-    try { rec.start(); } catch { setListening(false); }
+    rec.onerror = () => { setReady(false); };
+    rec.onend = () => {
+      setListening(false); setReady(false);
+      try { if (mediaRef.current && mediaRef.current.state !== "inactive") mediaRef.current.stop(); } catch {}
+    };
+    try { rec.start(); } catch { setListening(false); setReady(false); }
   };
-  const stopListen = () => { try { recRef.current?.stop(); } catch {} setListening(false); };
-  const go = (d) => { stopListen(); setHeard(""); setScore(null); setShowEn(false); setIdx((i) => Math.min(lines.length - 1, Math.max(0, i + d))); };
+
+  const beginListen = () => {
+    if (listening || countdown !== null || !Rec) return;
+    setHeard(""); setScore(null); clearRec();
+    let n = 3;
+    setCountdown(n);
+    cdRef.current = setInterval(() => {
+      n -= 1;
+      if (n <= 0) { try { clearInterval(cdRef.current); } catch {} setCountdown(null); startCapture(); }
+      else setCountdown(n);
+    }, 750);
+  };
+
+  const stopListen = () => { stopAll(); setCountdown(null); setListening(false); setReady(false); };
+  const playBack = () => { if (recUrl) { try { const a = new Audio(recUrl); a.play(); } catch {} } };
+  const go = (d) => { stopListen(); setHeard(""); setScore(null); setShowEn(false); clearRec(); setIdx((i) => Math.min(lines.length - 1, Math.max(0, i + d))); };
 
   return (
     <>
@@ -814,13 +866,19 @@ function Practice({ song, onBack }) {
         </div>
         {showEn && <div className="pracen">{line.en || "—"}</div>}
         <button className="pracen-toggle" onClick={() => setShowEn((v) => !v)}>{showEn ? tr("hideMeaning") : tr("showMeaning")}</button>
+        {(countdown !== null || ready) && (
+          <div className={"praccue" + (ready ? " live" : "")}>
+            {countdown !== null ? countdown : tr("speakNow")}
+          </div>
+        )}
         <div className="pracbtns">
           <button className="pracbtn" onClick={speak}>{tr("listen")}</button>
           {Rec ? (
-            <button className={"pracbtn mic" + (listening ? " on" : "")} onClick={listening ? stopListen : listen}>
-              {listening ? tr("listeningStop") : tr("speak")}
+            <button className={"pracbtn mic" + (listening ? " on" : "")} onClick={listening ? stopListen : beginListen} disabled={countdown !== null}>
+              {countdown !== null ? tr("getReady") : (listening ? tr("listeningStop") : tr("speak"))}
             </button>
           ) : null}
+          {recUrl && <button className="pracbtn" onClick={playBack}>{tr("hearYourself")}</button>}
         </div>
         {heard && (
           <div className="pracfb">
@@ -1086,7 +1144,12 @@ const CSS = `
 .pracline .wok{ color:#8fd49a; } .pracline .wno{ color:#e8938a; }
 .pracen{ text-align:center; color:var(--mist-dim); font-size:15px; margin:10px 0 0; }
 .pracen-toggle{ display:block; margin:10px auto 0; background:none; border:0; color:var(--rose); font-size:12.5px; cursor:pointer; }
-.pracbtns{ display:flex; gap:10px; justify-content:center; margin:28px 0 6px; }
+.praccue{ text-align:center; font-family:var(--display); font-weight:900; font-size:52px; line-height:1; color:var(--mist-dim); margin:18px 0 2px; }
+.praccue.live{ font-size:22px; color:var(--rose); letter-spacing:.02em; animation:cuepulse 1s ease-in-out infinite; }
+@keyframes cuepulse{ 0%,100%{ opacity:1; } 50%{ opacity:.55; } }
+@media (prefers-reduced-motion: reduce){ .praccue.live{ animation:none; } }
+.pracbtn:disabled{ opacity:.45; cursor:default; }
+.pracbtns{ display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin:28px 0 6px; }
 .pracbtn{ background:var(--night-2); border:1px solid var(--line); color:#eef1f6; border-radius:12px; padding:13px 24px; font-size:15px; font-family:var(--ui); font-weight:500; cursor:pointer; }
 .pracbtn.mic.on{ background:var(--rose); border-color:var(--rose); color:#20140f; }
 .pracfb{ text-align:center; margin:20px 0 4px; }
