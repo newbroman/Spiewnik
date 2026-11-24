@@ -493,8 +493,14 @@ function AddSong({ onBack, onCreate }) {
   async function doSearch() {
     if (!q.trim() || busy) return;
     setBusy(true); setSearched(true);
+    const query = q.trim();
+    // A pasted Spotify/YouTube link goes to the resolver; anything else is a catalogue search.
+    const isLink = /^https?:\/\/\S+$/i.test(query) && /(spotify\.com|youtu\.be|youtube\.com)/i.test(query);
+    const endpoint = isLink
+      ? `/api/resolve?url=${encodeURIComponent(query)}`
+      : `/api/search?q=${encodeURIComponent(query)}`;
     try {
-      const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`, { headers: apiHeaders() });
+      const r = await fetch(endpoint, { headers: apiHeaders() });
       const j = await r.json();
       setResults(Array.isArray(j.results) ? j.results : []);
     } catch { setResults([]); } finally { setBusy(false); }
@@ -534,6 +540,7 @@ function AddSong({ onBack, onCreate }) {
                 onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doSearch()} />
               <button className="searchbtn" onClick={doSearch} disabled={busy || !q.trim()}>{busy ? "…" : t("search")}</button>
             </div>
+            <p className="searchtip">{t("linkTip")}</p>
 
             <div className="results">
               {results.map((r, i) => (
@@ -1216,6 +1223,7 @@ const CSS = `
 .searchrow{ display:flex; gap:8px; }
 .searchrow input{ flex:1; }
 .searchbtn{ background:var(--rose); color:#20140f; border:0; border-radius:11px; padding:0 18px; font-family:var(--ui); font-size:14px; font-weight:600; cursor:pointer; } .searchbtn:disabled{ opacity:.5; cursor:default; }
+.searchtip{ font-size:11.5px; color:var(--mist-dim); margin:8px 2px 0; line-height:1.5; }
 .results{ display:flex; flex-direction:column; gap:8px; margin-top:14px; }
 .sresult{ width:100%; text-align:left; cursor:pointer; background:var(--night-2); border:1px solid var(--line); border-radius:12px; padding:12px 14px; display:flex; align-items:center; gap:12px; color:inherit; font-family:inherit; }
 .sresult:hover{ border-color:var(--rose); } .sresult:disabled{ opacity:.6; }
