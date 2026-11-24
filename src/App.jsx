@@ -1013,7 +1013,7 @@ function Practice({ song, onBack }) {
     </>
   );
 
-  const speak = (rate = 0.9) => {
+  const speak = (rate = 0.75) => {
     try {
       const synth = window.speechSynthesis; synth.cancel();
       const u = new SpeechSynthesisUtterance(line.pl);
@@ -1028,7 +1028,7 @@ function Practice({ song, onBack }) {
     const now = Date.now();
     const dbl = now - lastTapRef.current < 350;
     lastTapRef.current = now;
-    speak(dbl ? 0.5 : 0.9);
+    speak(dbl ? 0.45 : 0.75);
   };
   const clearRec = () => { if (recUrl) { try { URL.revokeObjectURL(recUrl); } catch {} setRecUrl(null); } };
 
