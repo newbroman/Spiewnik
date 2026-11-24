@@ -430,8 +430,6 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onDelete
                 const aKey = lg.language + "|" + ar.key;
                 const aOpen = !!openA[aKey];
                 const nSongs = ar.albums.reduce((n, al) => n + al.items.length, 0);
-                const named = ar.albums.filter((al) => al.key);
-                const loose = ar.albums.filter((al) => !al.key);
                 return (
                   <div key={ar.artist} className="artgroup">
                     <button className={"artbtn" + (aOpen ? " open" : "")} aria-expanded={aOpen}
@@ -442,24 +440,21 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onDelete
                     </button>
                     {aOpen && (
                       <div className="artbody">
-                        {named.map((al) => {
-                          const alKey = aKey + "|" + al.key;
+                        {ar.albums.map((al) => {
+                          const alKey = aKey + "|" + (al.key || "_loose");
                           const alOpen = !!openAl[alKey];
                           return (
-                            <div key={al.key} className="albgroup">
+                            <div key={al.key || "_loose"} className="albgroup">
                               <button className={"albbtn" + (alOpen ? " open" : "")} aria-expanded={alOpen}
                                 onClick={() => setOpenAl((o) => ({ ...o, [alKey]: !o[alKey] }))}>
                                 <span className="chev">▸</span>
-                                <span className="artname">{al.album}</span>
+                                <span className={"artname" + (al.key ? "" : " noalbum")}>{al.album || t("noAlbum")}</span>
                                 <span className="count">{al.items.length}</span>
                               </button>
                               {alOpen && <div className="songs">{al.items.map((s, i) => songRow(s, i))}</div>}
                             </div>
                           );
                         })}
-                        {loose.map((al) => (
-                          <div key="_loose" className="songs">{al.items.map((s, i) => songRow(s, i))}</div>
-                        ))}
                       </div>
                     )}
                   </div>
@@ -1151,6 +1146,7 @@ const CSS = `
 .artbody{ display:flex; flex-direction:column; gap:8px; padding-left:12px; border-left:2px solid var(--line); margin:7px 0 4px 10px; }
 .albgroup{ display:flex; flex-direction:column; gap:8px; }
 .albgroup .songs{ padding-left:10px; }
+.albbtn .artname.noalbum{ font-style:italic; color:var(--mist-dim); }
 
 /* Song row with inline delete */
 .songrow{ display:flex; align-items:stretch; gap:8px; }
