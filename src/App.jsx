@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { supabase, setAccessToken, apiHeaders } from "./supabase.js";
 import { makeT } from "./i18n.js";
 
@@ -699,6 +699,10 @@ function Reader({ song, targetLang, onBack, onEdit, onPractice, onFoundMedia }) 
   const [yt, setYt] = useState(song.youtubeId ?? undefined);
   const [sp, setSp] = useState(song.spotifyId ?? undefined);
   const [source, setSource] = useState(() => { try { return localStorage.getItem(PLAYER_KEY) || "youtube"; } catch { return "youtube"; } });
+
+  // Start a freshly opened song at the very top — the SPA otherwise keeps the
+  // previous scroll position, landing you mid-song under the sticky player.
+  useLayoutEffect(() => { window.scrollTo(0, 0); }, [song.id]);
 
   useEffect(() => {
     let active = true;
