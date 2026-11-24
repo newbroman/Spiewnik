@@ -16,6 +16,9 @@
 
 import { authorized, ALLOW_HEADERS } from "./_auth.js";
 
+// Accent/case-insensitive fold, so "Życie" and "Zycie" count as the same song.
+const fold = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+
 let spToken = { token: null, exp: 0 };
 async function spotifyToken() {
   const id = process.env.SPOTIFY_CLIENT_ID, secret = process.env.SPOTIFY_CLIENT_SECRET;
@@ -100,7 +103,7 @@ export default async function handler(req, res) {
     const results = [...sp, ...it, ...dz]
       .filter((x) => {
         if (!x.title || !x.artist) return false;
-        const k = (x.artist + "|" + x.title).toLowerCase();
+        const k = fold(x.artist) + "|" + fold(x.title);
         if (seen.has(k)) return false;
         seen.add(k);
         return true;
