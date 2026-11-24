@@ -203,6 +203,7 @@ export default function App() {
           canImport={session.user.id === OWNER_ID}
           onImport={importOld}
           onOpen={(id) => { setCurId(id); setView("reader"); }}
+          onDelete={(id) => removeSong(id)}
           onAdd={() => setView("add")}
           onSettings={() => setView("settings")}
           onSignOut={() => supabase.auth.signOut()}
@@ -337,8 +338,11 @@ function Welcome({ onPick }) {
 }
 
 // ---- Library list -----------------------------------------------------------
-function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, onSettings, onSignOut, onHelp, onFeedback }) {
+function ListView({ songs, loading, email, canImport, onImport, onOpen, onDelete, onAdd, onSettings, onSignOut, onHelp, onFeedback }) {
   const t = useT();
+  const [confirmDel, setConfirmDel] = useState(null); // song id awaiting delete confirmation
+  const [openA, setOpenA] = useState({});   // expanded artists  (key: "language|artist")
+  const [openAl, setOpenAl] = useState({});  // expanded albums  (key: "language|artist|album")
   // Index by language, then by artist within each language.
   const byLang = [];
   songs.forEach((s) => {
@@ -368,6 +372,32 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, o
   });
   const done = songs.filter((s) => s.pl && s.pl.trim()).length;
 
+  // One song row: tap the body to open it, or the bin to delete (with an inline confirm).
+  const songRow = (s, i) => {
+    const filled = !!(s.pl && s.pl.trim());
+    return (
+      <div key={s.id} className="songrow">
+        <button className="song" onClick={() => onOpen(s.id)}>
+          <span className="num">{i + 1}</span>
+          <span className="meta">
+            <h3>{s.title || t("untitled")}</h3>
+            <p>{filled ? t("lines", { n: s.pl.split("\n").filter((l) => l.trim()).length }) : t("noLyricsYet")}</p>
+          </span>
+          <span className={"dot " + (filled ? "full" : "empty")} />
+        </button>
+        {confirmDel === s.id ? (
+          <span className="songdelask">
+            <button className="songdel yes" onClick={() => { onDelete(s.id); setConfirmDel(null); }}>{t("del")}</button>
+            <button className="songdel no" onClick={() => setConfirmDel(null)}>{t("keep")}</button>
+          </span>
+        ) : (
+          <button className="songdel" aria-label={t("removeSong")} title={t("removeSong")}
+            onClick={() => setConfirmDel(s.id)}>🗑</button>
+        )}
+      </div>
+    );
+  };
+
   return (
     <>
       <div className="top">
@@ -396,31 +426,45 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, o
           byLang.map((lg) => (
             <div key={lg.language}>
               <div className="albsect">{lg.language}</div>
-              {lg.artists.map((ar) => (
-                <div key={ar.artist}>
-                  <div className="artsect">{ar.artist}</div>
-                  {ar.albums.map((al) => (
-                    <div key={al.key || "_loose"}>
-                      {al.album && <div className="albumsect">{al.album}</div>}
-                      <div className="songs">
-                        {al.items.map((s, i) => {
-                          const filled = !!(s.pl && s.pl.trim());
+              {lg.artists.map((ar) => {
+                const aKey = lg.language + "|" + ar.key;
+                const aOpen = !!openA[aKey];
+                const nSongs = ar.albums.reduce((n, al) => n + al.items.length, 0);
+                const named = ar.albums.filter((al) => al.key);
+                const loose = ar.albums.filter((al) => !al.key);
+                return (
+                  <div key={ar.artist} className="artgroup">
+                    <button className={"artbtn" + (aOpen ? " open" : "")} aria-expanded={aOpen}
+                      onClick={() => setOpenA((o) => ({ ...o, [aKey]: !o[aKey] }))}>
+                      <span className="chev">▸</span>
+                      <span className="artname">{ar.artist}</span>
+                      <span className="count">{nSongs}</span>
+                    </button>
+                    {aOpen && (
+                      <div className="artbody">
+                        {named.map((al) => {
+                          const alKey = aKey + "|" + al.key;
+                          const alOpen = !!openAl[alKey];
                           return (
-                            <button key={s.id} className="song" onClick={() => onOpen(s.id)}>
-                              <span className="num">{i + 1}</span>
-                              <span className="meta">
-                                <h3>{s.title || t("untitled")}</h3>
-                                <p>{filled ? t("lines", { n: s.pl.split("\n").filter((l) => l.trim()).length }) : t("noLyricsYet")}</p>
-                              </span>
-                              <span className={"dot " + (filled ? "full" : "empty")} />
-                            </button>
+                            <div key={al.key} className="albgroup">
+                              <button className={"albbtn" + (alOpen ? " open" : "")} aria-expanded={alOpen}
+                                onClick={() => setOpenAl((o) => ({ ...o, [alKey]: !o[alKey] }))}>
+                                <span className="chev">▸</span>
+                                <span className="artname">{al.album}</span>
+                                <span className="count">{al.items.length}</span>
+                              </button>
+                              {alOpen && <div className="songs">{al.items.map((s, i) => songRow(s, i))}</div>}
+                            </div>
                           );
                         })}
+                        {loose.map((al) => (
+                          <div key="_loose" className="songs">{al.items.map((s, i) => songRow(s, i))}</div>
+                        ))}
                       </div>
-                    </div>
-                  ))}
-                </div>
-              ))}
+                    )}
+                  </div>
+                );
+              })}
             </div>
           ))
         )}
@@ -1094,6 +1138,28 @@ const CSS = `
 .songs{ display:flex; flex-direction:column; gap:8px; }
 .song{ width:100%; text-align:left; cursor:pointer; background:var(--night-2); border:1px solid var(--line); border-radius:14px; padding:14px 16px; display:flex; align-items:center; gap:14px; color:inherit; font-family:inherit; transition:border-color .16s, transform .1s; }
 .song:hover{ border-color:var(--night-3); } .song:active{ transform:scale(.995); }
+
+/* Collapsible library: artist → album → songs */
+.artgroup{ margin-bottom:8px; }
+.artbtn, .albbtn{ width:100%; text-align:left; cursor:pointer; background:var(--night-2); border:1px solid var(--line); border-radius:14px; padding:13px 15px; display:flex; align-items:center; gap:11px; color:inherit; font-family:inherit; font-size:15px; transition:border-color .16s; }
+.artbtn:hover, .albbtn:hover{ border-color:var(--night-3); }
+.artbtn .artname{ flex:1; min-width:0; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.albbtn .artname{ flex:1; min-width:0; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.artbtn .count, .albbtn .count{ flex:none; font-size:12px; color:var(--mist-dim); background:var(--night); border:1px solid var(--line); border-radius:999px; min-width:22px; text-align:center; padding:1px 7px; }
+.artbtn .chev, .albbtn .chev{ flex:none; color:var(--mist-dim); font-size:12px; transition:transform .16s; }
+.artbtn.open .chev, .albbtn.open .chev{ transform:rotate(90deg); }
+.artbody{ display:flex; flex-direction:column; gap:8px; padding-left:12px; border-left:2px solid var(--line); margin:7px 0 4px 10px; }
+.albgroup{ display:flex; flex-direction:column; gap:8px; }
+.albgroup .songs{ padding-left:10px; }
+
+/* Song row with inline delete */
+.songrow{ display:flex; align-items:stretch; gap:8px; }
+.songrow .song{ flex:1; min-width:0; }
+.songdel{ flex:none; display:grid; place-items:center; min-width:46px; padding:0 12px; background:var(--night-2); border:1px solid var(--line); border-radius:14px; color:var(--mist-dim); font-size:15px; cursor:pointer; font-family:inherit; transition:border-color .16s, color .16s; }
+.songdel:hover{ border-color:#c6616b; color:#e59aa0; }
+.songdelask{ display:flex; gap:6px; flex:none; }
+.songdel.yes{ min-width:0; padding:0 13px; background:#4e2730; border-color:#7a3a44; color:#ffd7dd; font-size:12.5px; font-weight:600; }
+.songdel.no{ min-width:0; padding:0 13px; font-size:12.5px; font-weight:600; }
 .num{ font-family:var(--display); font-weight:700; font-size:14px; color:var(--mist-dim); width:22px; flex:none; text-align:right; font-variant-numeric:tabular-nums; }
 .song .meta{ flex:1; min-width:0; }
 .song .meta h3{ margin:0; font-family:var(--display); font-weight:600; font-size:17px; color:#f0ebe0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
