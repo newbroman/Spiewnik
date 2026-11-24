@@ -195,7 +195,14 @@ export default function App() {
           onAdd={() => setView("add")}
           onSettings={() => setView("settings")}
           onSignOut={() => supabase.auth.signOut()}
+          onHelp={() => setView("help")}
+          onFeedback={() => setView("feedback")}
         />
+      )}
+      {view === "help" && <Help onBack={() => setView("list")} />}
+      {view === "feedback" && (
+        <Feedback email={session.user.email} onBack={() => setView("list")}
+          onSent={() => { setView("list"); flash(t("feedbackThanks")); }} />
       )}
       {view === "settings" && (
         <Settings profile={profile} hasOwnKey={hasOwnKey} targetLang={targetLang}
@@ -319,7 +326,7 @@ function Welcome({ onPick }) {
 }
 
 // ---- Library list -----------------------------------------------------------
-function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, onSettings, onSignOut }) {
+function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, onSettings, onSignOut, onHelp, onFeedback }) {
   const t = useT();
   // Index by language, then by artist within each language.
   const byLang = [];
@@ -356,6 +363,8 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onAdd, o
         <div className="toprow">
           <div className="eyebrow">{t("libraryEyebrow")}</div>
           <div className="topbtns">
+            <button className="signout" onClick={onHelp}>{t("help")}</button>
+            <button className="signout accent" onClick={onFeedback}>{t("feedback")}</button>
             <button className="signout" onClick={onSettings}>{t("settings")}</button>
             <button className="signout" onClick={onSignOut}>{t("signOut")}</button>
           </div>
@@ -550,6 +559,60 @@ function Settings({ profile, hasOwnKey, targetLang, onSave, onSaveTarget, onBack
           </div>
           <a className="findbtn" href="https://www.deepl.com/pro-api" target="_blank" rel="noreferrer">{t("getKey")}</a>
           <p className="hint2">{t("deeplHint")}</p>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Help({ onBack }) {
+  const t = useT();
+  const items = ["Add", "Lyrics", "Translate", "Read", "Play", "Practice"];
+  return (
+    <>
+      <div className="rbar">
+        <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
+        <div className="ttl"><h2>{t("help")}</h2><p>{t("helpSub")}</p></div>
+      </div>
+      <div className="editor">
+        {items.map((k, i) => (
+          <div className="setcard" key={k} style={{ marginBottom: 12 }}>
+            <h3>{i + 1} · {t("help" + k + "H")}</h3>
+            <p className="setstate">{t("help" + k + "B")}</p>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function Feedback({ email, onBack, onSent }) {
+  const t = useT();
+  const [msg, setMsg] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(false);
+  const send = async () => {
+    if (!msg.trim() || busy) return;
+    setBusy(true); setErr(false);
+    const { error } = await supabase.from("feedback").insert({ message: msg.trim(), email });
+    setBusy(false);
+    if (error) setErr(true); else onSent();
+  };
+  return (
+    <>
+      <div className="rbar">
+        <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
+        <div className="ttl"><h2>{t("feedback")}</h2><p>{t("feedbackSub")}</p></div>
+      </div>
+      <div className="editor">
+        <div className="setcard">
+          <p className="setstate">{t("feedbackIntro")}</p>
+          <textarea className="fbarea" value={msg} rows={6} placeholder={t("feedbackPlaceholder")}
+            onChange={(e) => setMsg(e.target.value)} />
+          {err && <p className="setstate" style={{ color: "var(--rose)" }}>{t("feedbackErr")}</p>}
+          <div className="setbtns">
+            <button className="save" onClick={send} disabled={busy || !msg.trim()}>{busy ? t("saving") : t("feedbackSend")}</button>
+          </div>
         </div>
       </div>
     </>
@@ -927,9 +990,12 @@ const CSS = `
 .app{ width:100%; max-width:680px; min-height:100vh; display:flex; flex-direction:column; position:relative; }
 .splash{ margin:auto; font-family:var(--display); font-weight:900; font-size:26px; color:#f3ede1; opacity:.8; }
 .top{ padding:22px 20px 16px; border-bottom:1px solid var(--line); }
-.toprow{ display:flex; align-items:center; justify-content:space-between; }
-.topbtns{ display:flex; gap:8px; }
+.toprow{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; }
+.topbtns{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
 .signout{ background:var(--night-2); border:1px solid var(--line); color:var(--mist-dim); border-radius:9px; padding:6px 12px; font-size:12px; font-family:var(--ui); cursor:pointer; }
+.signout.accent{ color:var(--rose); border-color:color-mix(in srgb, var(--rose) 45%, var(--line)); }
+.fbarea{ width:100%; box-sizing:border-box; background:var(--night-3); border:1px solid var(--line); color:var(--mist); border-radius:10px; padding:12px 14px; font-family:var(--ui); font-size:14px; line-height:1.5; resize:vertical; margin-top:12px; }
+.fbarea:focus{ outline:none; border-color:var(--rose); }
 .setcard{ background:var(--night-2); border:1px solid var(--line); border-radius:14px; padding:18px; }
 .setcard h3{ margin:0 0 10px; font-family:var(--display); font-weight:600; font-size:18px; color:#f0ebe0; }
 .setstate{ font-size:13px; color:var(--mist-dim); line-height:1.5; margin:0 0 14px; } .setstate.ok{ color:#8fd49a; }
