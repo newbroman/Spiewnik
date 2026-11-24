@@ -164,6 +164,31 @@ export default function App() {
     if (error) flash("Save didn't reach the server: " + error.message);
   }
 
+  // Fill in albums for songs that were added before the catalogue returned them
+  // (e.g. the Daria import). Looks each up and takes a matching album.
+  async function backfillAlbums() {
+    const missing = songs.filter((s) => !(s.album && s.album.trim()));
+    let filled = 0;
+    for (const s of missing) {
+      try {
+        const r = await fetch(`/api/search?q=${encodeURIComponent(`${s.artist} ${s.title}`)}`, { headers: apiHeaders() });
+        const j = await r.json();
+        const results = Array.isArray(j.results) ? j.results : [];
+        const nt = norm(s.title), na = norm(s.artist);
+        const cand = results.filter((x) =>
+          x.album && x.album.trim() && norm(x.title) === nt &&
+          (na === "" || norm(x.artist).includes(na) || na.includes(norm(x.artist)))
+        );
+        if (!cand.length) continue;
+        const best = cand.find((x) => norm(x.album) !== nt) || cand[0]; // prefer a real album over a self-titled single
+        const album = best.album.trim();
+        const { error } = await supabase.from("songs").update({ album, updated_at: new Date().toISOString() }).eq("id", s.id);
+        if (!error) { setSongs((prev) => prev.map((x) => (x.id === s.id ? { ...x, album } : x))); filled++; }
+      } catch { /* skip this one */ }
+    }
+    return { total: missing.length, filled };
+  }
+
   async function importOld() {
     flash("Importing your old songs…");
     try {
@@ -218,7 +243,8 @@ export default function App() {
       )}
       {view === "settings" && (
         <Settings profile={profile} hasOwnKey={hasOwnKey} targetLang={targetLang}
-          onSave={saveDeeplKey} onSaveTarget={saveTargetLang} onBack={() => setView("list")} />
+          onSave={saveDeeplKey} onSaveTarget={saveTargetLang} onBack={() => setView("list")}
+          missingAlbums={songs.filter((s) => !(s.album && s.album.trim())).length} onBackfill={backfillAlbums} />
       )}
       {view === "add" && <AddSong onBack={() => setView("list")} onCreate={createSong} />}
       {view === "reader" && cur && (
@@ -630,14 +656,22 @@ function AddSong({ onBack, onCreate }) {
 }
 
 // ---- Settings (your own DeepL key) -----------------------------------------
-function Settings({ profile, hasOwnKey, targetLang, onSave, onSaveTarget, onBack }) {
+function Settings({ profile, hasOwnKey, targetLang, onSave, onSaveTarget, onBack, missingAlbums, onBackfill }) {
   const t = useT();
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [showKey, setShowKey] = useState(false);
+  const [bfBusy, setBfBusy] = useState(false);
+  const [bfMsg, setBfMsg] = useState("");
   const used = profile?.trial_used || 0;
   const save = async () => { if (!key.trim() || busy) return; setBusy(true); const ok = await onSave(key.trim()); setBusy(false); if (ok) setKey(""); };
   const remove = async () => { setBusy(true); await onSave(""); setBusy(false); };
+  const runBackfill = async () => {
+    if (bfBusy) return;
+    setBfBusy(true); setBfMsg("");
+    const { total, filled } = await onBackfill();
+    setBfBusy(false); setBfMsg(t("albumsFilled", { filled, total }));
+  };
   return (
     <>
       <div className="rbar">
@@ -671,6 +705,19 @@ function Settings({ profile, hasOwnKey, targetLang, onSave, onSaveTarget, onBack
           <a className="findbtn" href="https://www.deepl.com/pro-api" target="_blank" rel="noreferrer">{t("getKey")}</a>
           <p className="hint2">{t("deeplHint")}</p>
         </div>
+
+        {(missingAlbums > 0 || bfMsg) && (
+          <div className="setcard" style={{ marginTop: 16 }}>
+            <h3>{t("fixAlbumsH")}</h3>
+            <p className="setstate">{t("fixAlbumsBody", { n: missingAlbums })}</p>
+            <div className="setbtns">
+              <button className="save" onClick={runBackfill} disabled={bfBusy || missingAlbums === 0}>
+                {bfBusy ? t("fixAlbumsBusy") : t("fixAlbumsBtn")}
+              </button>
+            </div>
+            {bfMsg && <p className="setstate ok">{bfMsg}</p>}
+          </div>
+        )}
       </div>
     </>
   );
