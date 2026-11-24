@@ -366,9 +366,11 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onDelete
   byLang.sort((a, b) => a.language.localeCompare(b.language));
   byLang.forEach((lg) => {
     lg.artists.sort((a, b) => a.artist.localeCompare(b.artist));
-    // Named albums first (A–Z), loose singles (blank album) last.
-    lg.artists.forEach((ar) => ar.albums.sort((a, b) =>
-      (a.key ? 0 : 1) - (b.key ? 0 : 1) || a.album.localeCompare(b.album)));
+    // Named albums first (A–Z), loose singles (blank album) last; songs A–Z within each.
+    lg.artists.forEach((ar) => {
+      ar.albums.sort((a, b) => (a.key ? 0 : 1) - (b.key ? 0 : 1) || a.album.localeCompare(b.album));
+      ar.albums.forEach((al) => al.items.sort((a, b) => (a.title || "").localeCompare(b.title || "")));
+    });
   });
   const done = songs.filter((s) => s.pl && s.pl.trim()).length;
 
