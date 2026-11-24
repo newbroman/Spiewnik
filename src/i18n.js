@@ -69,6 +69,7 @@ const EN = {
   listen: "Listen", speak: "Speak", listeningStop: "Listening… stop",
   getReady: "Get ready…", speakNow: "Speak now", hearYourself: "Hear yourself",
   recSelf: "🎙 Record yourself", recStop: "⏹ Stop recording", checking: "Checking…",
+  slowHint: "Double-tap Listen for half speed",
   noPracticeYet: "No lyrics to practise yet — add them under Edit first.",
   prev: "← Prev", next: "Next →",
   // editor

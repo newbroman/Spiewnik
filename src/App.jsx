@@ -978,7 +978,7 @@ function Practice({ song, onBack }) {
   const [showEn, setShowEn] = useState(false);
   const [engine, setEngine] = useState(null);         // "whisper" | "browser" | "none" | null (checking)
   const recRef = useRef(null), mediaRef = useRef(null), streamRef = useRef(null), chunksRef = useRef([]);
-  const cdRef = useRef(null), vadRef = useRef(null), capRef = useRef(null);
+  const cdRef = useRef(null), vadRef = useRef(null), capRef = useRef(null), lastTapRef = useRef(0);
   const Rec = typeof window !== "undefined" && (window.SpeechRecognition || window.webkitSpeechRecognition);
   const line = lines[idx];
 
@@ -1013,15 +1013,22 @@ function Practice({ song, onBack }) {
     </>
   );
 
-  const speak = () => {
+  const speak = (rate = 0.9) => {
     try {
       const synth = window.speechSynthesis; synth.cancel();
       const u = new SpeechSynthesisUtterance(line.pl);
-      u.lang = bcp; u.rate = 0.9;
+      u.lang = bcp; u.rate = rate;
       const v = synth.getVoices().find((x) => x.lang && x.lang.toLowerCase().startsWith(lang2));
       if (v) u.voice = v;
       synth.speak(u);
     } catch {}
+  };
+  // Single tap = normal; a quick second tap re-plays at half speed.
+  const onListen = () => {
+    const now = Date.now();
+    const dbl = now - lastTapRef.current < 350;
+    lastTapRef.current = now;
+    speak(dbl ? 0.5 : 0.9);
   };
   const clearRec = () => { if (recUrl) { try { URL.revokeObjectURL(recUrl); } catch {} setRecUrl(null); } };
 
@@ -1169,13 +1176,14 @@ function Practice({ song, onBack }) {
           </div>
         )}
         <div className="pracbtns">
-          <button className="pracbtn" onClick={speak}>{tr("listen")}</button>
+          <button className="pracbtn" onClick={onListen}>{tr("listen")}</button>
           {canSpeak && (
             <button className={"pracbtn mic" + (listening ? " on" : "")} onClick={listening ? stopListen : beginListen} disabled={countdown !== null || processing || recording}>
               {countdown !== null ? tr("getReady") : (listening ? tr("listeningStop") : tr("speak"))}
             </button>
           )}
         </div>
+        <p className="prachint">{tr("slowHint")}</p>
         {(recUrl || engine === "browser") && (
           <div className="pracbtns">
             {engine === "browser" && (
@@ -1508,6 +1516,7 @@ const CSS = `
 .pracbtn{ background:var(--night-2); border:1px solid var(--line); color:#eef1f6; border-radius:12px; padding:13px 24px; font-size:15px; font-family:var(--ui); font-weight:500; cursor:pointer; }
 .pracbtn.mic.on{ background:var(--rose); border-color:var(--rose); color:#20140f; }
 .pracbtn.on{ background:var(--rose); border-color:var(--rose); color:#20140f; }
+.prachint{ font-size:11.5px; color:var(--mist-dim); margin:8px 0 0; text-align:center; }
 .pracfb{ text-align:center; margin:20px 0 4px; }
 .pracpct{ font-family:var(--display); font-weight:900; font-size:32px; color:#e8938a; }
 .pracpct[data-good="true"]{ color:#8fd49a; }
