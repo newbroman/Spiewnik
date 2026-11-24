@@ -565,22 +565,106 @@ function AddSong({ onBack, onCreate }) {
   const [artist, setArtist] = useState("");
   const [album, setAlbum] = useState("");
   const [title, setTitle] = useState("");
+  const [voiceRec, setVoiceRec] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMode, setAiMode] = useState(false);    // current results came from AI
+  const [openai, setOpenai] = useState(false);     // OPENAI key present → voice + AI offered
+  const vMediaRef = useRef(null), vStreamRef = useRef(null), vChunksRef = useRef([]);
 
-  async function doSearch() {
-    if (!q.trim() || busy) return;
-    setBusy(true); setSearched(true);
-    const query = q.trim();
+  // Voice search and AI suggestions both need the OpenAI key; check once.
+  useEffect(() => {
+    let ok = true;
+    fetch("/api/suggest", { headers: apiHeaders() }).then((r) => r.json())
+      .then((j) => { if (ok) setOpenai(!!(j && j.configured)); }).catch(() => {});
+    return () => { ok = false; };
+  }, []);
+
+  const seqRef = useRef(0);
+  async function runSearch(query) {
+    const my = ++seqRef.current;
     // A pasted Spotify/YouTube link goes to the resolver; anything else is a catalogue search.
     const isLink = /^https?:\/\/\S+$/i.test(query) && /(spotify\.com|youtu\.be|youtube\.com)/i.test(query);
     const endpoint = isLink
       ? `/api/resolve?url=${encodeURIComponent(query)}`
       : `/api/search?q=${encodeURIComponent(query)}`;
+    setBusy(true); setSearched(true); setAiMode(false);
     try {
       const r = await fetch(endpoint, { headers: apiHeaders() });
       const j = await r.json();
+      if (my !== seqRef.current) return;              // a newer search superseded this one
       setResults(Array.isArray(j.results) ? j.results : []);
-    } catch { setResults([]); } finally { setBusy(false); }
+    } catch { if (my === seqRef.current) setResults([]); }
+    finally { if (my === seqRef.current) setBusy(false); }
   }
+  function doSearch() { const query = q.trim(); if (query) runSearch(query); }
+
+  // AI suggestions — turn a theme / vague request into a list of real songs.
+  async function askAI() {
+    const query = q.trim();
+    if (aiBusy || !query) return;
+    seqRef.current++;                                  // cancel any pending live search
+    setAiBusy(true); setSearched(true);
+    try {
+      const r = await fetch("/api/suggest", {
+        method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
+        body: JSON.stringify({ query, language }),
+      });
+      const j = await r.json();
+      setResults(Array.isArray(j.results) ? j.results : []);
+      setAiMode(true);
+    } catch { setResults([]); } finally { setAiBusy(false); }
+  }
+
+  // Voice search — speak a query, transcribe it with Whisper, drop it in the box
+  // (the live search then runs automatically).
+  async function toggleVoice() {
+    if (voiceRec) {
+      try { if (vMediaRef.current && vMediaRef.current.state !== "inactive") vMediaRef.current.stop(); } catch {}
+      setVoiceRec(false);
+      return;
+    }
+    let stream;
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { return; }
+    vStreamRef.current = stream; vChunksRef.current = [];
+    const mime = window.MediaRecorder?.isTypeSupported("audio/webm") ? "audio/webm"
+      : window.MediaRecorder?.isTypeSupported("audio/mp4") ? "audio/mp4" : "";
+    let mr;
+    try { mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined); }
+    catch { stream.getTracks().forEach((t) => t.stop()); return; }
+    vMediaRef.current = mr;
+    const chunks = vChunksRef.current;
+    mr.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    mr.onstop = async () => {
+      try { vStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
+      setVoiceRec(false);
+      const blob = new Blob(chunks, { type: mime || "audio/webm" });
+      if (!blob.size) return;
+      setBusy(true);
+      try {
+        const b64 = await blobToBase64(blob);
+        const r = await fetch("/api/transcribe", {
+          method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
+          body: JSON.stringify({ audio: b64, mime: mime || "audio/webm", language: langOf(language).bcp.slice(0, 2) }),
+        });
+        const j = await r.json();
+        const txt = (j.text || "").trim();
+        if (txt) setQ(txt);                            // live search fires on the new query
+      } catch {} finally { setBusy(false); }
+    };
+    mr.start(); setVoiceRec(true);
+    setTimeout(() => { try { if (mr.state !== "inactive") mr.stop(); } catch {} }, 6000); // short query cap
+  }
+
+  // Live search: fetch a list automatically as you type (debounced). A half-typed
+  // link is left for Enter / the button so we don't resolve it prematurely.
+  useEffect(() => {
+    const query = q.trim();
+    if (query.length < 2) { seqRef.current++; setResults([]); setSearched(false); return; }
+    if (/^https?:\/\//i.test(query)) return;
+    const id = setTimeout(() => runSearch(query), 450);
+    return () => clearTimeout(id);
+  }, [q]);
   async function pick(res) {
     if (creating) return;
     setCreating(true);
@@ -614,11 +698,20 @@ function AddSong({ onBack, onCreate }) {
             <div className="searchrow">
               <input value={q} autoFocus placeholder={t("searchPh")}
                 onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doSearch()} />
+              {openai && (
+                <button className={"micbtn" + (voiceRec ? " on" : "")} onClick={toggleVoice} aria-label={t("voiceSearch")} title={t("voiceSearch")}>
+                  {voiceRec ? "⏹" : "🎤"}
+                </button>
+              )}
               <button className="searchbtn" onClick={doSearch} disabled={busy || !q.trim()}>{busy ? "…" : t("search")}</button>
             </div>
             <p className="searchtip">{t("linkTip")}</p>
+            {openai && q.trim() && (
+              <button className="aibtn" onClick={askAI} disabled={aiBusy}>{aiBusy ? t("aiBusy") : t("aiSuggest")}</button>
+            )}
 
             <div className="results">
+              {aiMode && results.length > 0 && <p className="ailabel">{t("aiLabel")}</p>}
               {results.map((r, i) => (
                 <button key={i} className="sresult" onClick={() => pick(r)} disabled={creating}>
                   <span className="meta">
@@ -1486,6 +1579,11 @@ const CSS = `
 .searchrow input{ flex:1; }
 .searchbtn{ background:var(--rose); color:#20140f; border:0; border-radius:11px; padding:0 18px; font-family:var(--ui); font-size:14px; font-weight:600; cursor:pointer; } .searchbtn:disabled{ opacity:.5; cursor:default; }
 .searchtip{ font-size:11.5px; color:var(--mist-dim); margin:8px 2px 0; line-height:1.5; }
+.micbtn{ flex:none; width:44px; background:var(--night-2); border:1px solid var(--line); border-radius:11px; font-size:16px; cursor:pointer; color:var(--mist); }
+.micbtn.on{ background:var(--rose); border-color:var(--rose); color:#20140f; }
+.aibtn{ display:block; width:100%; margin-top:12px; background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:12px; padding:11px; font-family:var(--ui); font-size:13.5px; font-weight:600; cursor:pointer; }
+.aibtn:hover{ border-color:var(--rose); color:#f0ebe0; } .aibtn:disabled{ opacity:.6; cursor:default; }
+.ailabel{ font-size:11.5px; color:var(--mist-dim); margin:4px 2px 10px; }
 .results{ display:flex; flex-direction:column; gap:8px; margin-top:14px; }
 .sresult{ width:100%; text-align:left; cursor:pointer; background:var(--night-2); border:1px solid var(--line); border-radius:12px; padding:12px 14px; display:flex; align-items:center; gap:12px; color:inherit; font-family:inherit; }
 .sresult:hover{ border-color:var(--rose); } .sresult:disabled{ opacity:.6; }

@@ -31,7 +31,9 @@ const EN = {
   // add
   addTitle: "Add a song", addSub: "Search for it, or add it by hand",
   songLang: "Language of the song", searchHdr: "Search for a song",
-  searchPh: "Artist and/or song title", search: "Search",
+  searchPh: "Artist, song, or theme — e.g. Zalia, Polish nursery rhymes", search: "Search",
+  voiceSearch: "Voice search", aiSuggest: "✨ Suggest songs with AI", aiBusy: "Thinking…",
+  aiLabel: "AI suggestions — tap one to add and fetch its lyrics",
   noMatches: "No matches. Check the spelling, search the web, or add it by hand below.",
   addManual: "Can’t find it? Add manually →",
   webSearch: "🌐 Search the web for this ↗",
