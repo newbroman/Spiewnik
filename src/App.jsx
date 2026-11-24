@@ -343,6 +343,7 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onDelete
   const [confirmDel, setConfirmDel] = useState(null); // song id awaiting delete confirmation
   const [selArtist, setSelArtist] = useState(null); // drilled-in artist: { language, key } or null
   const [openAl, setOpenAl] = useState({});  // collapsed albums on the artist page (default open)
+  const [query, setQuery] = useState("");    // library lyric/word search
   // Index by language, then by artist within each language.
   const byLang = [];
   songs.forEach((s) => {
@@ -404,6 +405,26 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onDelete
   const curLg = selArtist ? byLang.find((l) => l.language === selArtist.language) : null;
   const curAr = curLg ? curLg.artists.find((a) => a.key === selArtist.key) : null;
 
+  // Library word-search: match a remembered lyric (or title/artist) across songs,
+  // diacritic-insensitive so Polish matches with or without accents.
+  const nq = norm(query);
+  const matches = nq
+    ? songs
+        .map((s) => {
+          let snip = "";
+          for (const l of (s.pl || "").split("\n").concat((s.en || "").split("\n"))) {
+            if (norm(l).includes(nq)) { snip = l.trim(); break; }
+          }
+          const metaHit =
+            norm(s.title).includes(nq) || norm(s.artist).includes(nq) || norm(s.album || "").includes(nq);
+          return snip || metaHit ? { s, snip } : null;
+        })
+        .filter(Boolean)
+        .sort((a, b) =>
+          (a.s.artist || "").localeCompare(b.s.artist || "") || (a.s.title || "").localeCompare(b.s.title || "")
+        )
+    : [];
+
   return (
     <>
       <div className="top">
@@ -422,12 +443,32 @@ function ListView({ songs, loading, email, canImport, onImport, onOpen, onDelete
           : `${t("filled", { done, total: songs.length })} ${t("signedInAs", { email })}`}</p>
       </div>
       <div className="body">
+        {!loading && songs.length > 0 && (
+          <div className="libsearch">
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("searchLibraryPh")} />
+            {query && <button className="libsearchx" onClick={() => setQuery("")} aria-label={t("keep")}>✕</button>}
+          </div>
+        )}
         {loading ? (
           <div className="emptylib">{t("loading")}</div>
         ) : songs.length === 0 ? (
           <div className="emptylib">
             {t("nothingHere")}<br />{t("tapAddToStart")}
           </div>
+        ) : query.trim() ? (
+          matches.length === 0 ? (
+            <div className="emptylib">{t("noLyricHits")}</div>
+          ) : (
+            matches.map(({ s, snip }) => (
+              <button key={s.id} className="song lyrichit" onClick={() => onOpen(s.id)}>
+                <span className="meta">
+                  <h3>{s.title || t("untitled")}</h3>
+                  <p className="hitsub">{[s.artist, s.language].filter(Boolean).join(" · ")}</p>
+                  {snip && <p className="hitsnip">{esc(snip)}</p>}
+                </span>
+              </button>
+            ))
+          )
         ) : curAr ? (
           <>
             <button className="artback" onClick={() => setSelArtist(null)}>← {t("allArtists")}</button>
@@ -1166,6 +1207,15 @@ const CSS = `
 .albgroup{ display:flex; flex-direction:column; gap:8px; margin-bottom:8px; }
 .albgroup .songs{ padding-left:10px; }
 .albbtn .artname.noalbum{ font-style:italic; color:var(--mist-dim); }
+
+/* Library lyric/word search */
+.libsearch{ position:relative; margin:0 0 14px; }
+.libsearch input{ width:100%; background:var(--night-2); border:1px solid var(--line); border-radius:12px; padding:12px 38px 12px 14px; color:var(--mist); font-family:var(--ui); font-size:14px; }
+.libsearch input:focus{ outline:none; border-color:var(--rose); }
+.libsearchx{ position:absolute; right:8px; top:50%; transform:translateY(-50%); background:none; border:0; color:var(--mist-dim); font-size:15px; cursor:pointer; padding:6px; line-height:1; }
+.song.lyrichit{ margin-bottom:8px; }
+.hitsub{ color:var(--mist-dim); font-size:12.5px; margin:2px 0 0; }
+.hitsnip{ color:var(--mist); font-size:13px; margin:5px 0 0; font-style:italic; opacity:.9; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 
 /* Song row with inline delete */
 .songrow{ display:flex; align-items:stretch; gap:8px; }
