@@ -64,6 +64,7 @@ const esc = (s) => s || "";
 // Map a DB row to the shape the UI uses (camelCase for media ids).
 const fromRow = (r) => ({
   id: r.id, language: r.language || "Polish", artist: r.artist || "", album: r.album || "", title: r.title || "",
+  titleEn: r.title_en || "", albumEn: r.album_en || "",
   pl: r.pl || "", en: r.en || "", youtubeId: r.youtube_id, spotifyId: r.spotify_id, position: r.position ?? 0,
 });
 
@@ -153,6 +154,8 @@ export default function App() {
     if ("title" in patch) row.title = patch.title;
     if ("artist" in patch) row.artist = patch.artist;
     if ("album" in patch) row.album = patch.album;
+    if ("titleEn" in patch) row.title_en = patch.titleEn;
+    if ("albumEn" in patch) row.album_en = patch.albumEn;
     if ("language" in patch) row.language = patch.language;
     if ("pl" in patch) row.pl = patch.pl;
     if ("en" in patch) row.en = patch.en;
@@ -186,6 +189,29 @@ export default function App() {
       } catch { /* skip this one */ }
     }
     return { total: missing.length, filled };
+  }
+
+  // Translate the title + album of songs that don't have a translation yet.
+  async function backfillTitles() {
+    const todo = songs.filter((s) => s.title && s.title.trim() && !(s.titleEn && s.titleEn.trim()));
+    let filled = 0;
+    for (const s of todo) {
+      try {
+        const lines = [s.title.trim(), (s.album || "").trim()];
+        const r = await fetch("/api/translate", {
+          method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
+          body: JSON.stringify({ lines, source: langOf(s.language).code, target: langOf(targetLang).code, provider: "deepl" }),
+        });
+        if (!r.ok) continue;
+        const j = await r.json();
+        const tr = j.translations || [];
+        const titleEn = (tr[0] || "").trim(), albumEn = (tr[1] || "").trim();
+        const { error } = await supabase.from("songs")
+          .update({ title_en: titleEn, album_en: albumEn, updated_at: new Date().toISOString() }).eq("id", s.id);
+        if (!error) { setSongs((prev) => prev.map((x) => (x.id === s.id ? { ...x, titleEn, albumEn } : x))); filled++; }
+      } catch { /* skip this one */ }
+    }
+    return { total: todo.length, filled };
   }
 
   async function removeSong(id) {
@@ -228,7 +254,9 @@ export default function App() {
       {view === "settings" && (
         <Settings profile={profile} hasOwnKey={hasOwnKey} targetLang={targetLang}
           onSave={saveDeeplKey} onSaveTarget={saveTargetLang} onBack={() => setView("list")}
-          missingAlbums={songs.filter((s) => !(s.album && s.album.trim())).length} onBackfill={backfillAlbums} />
+          missingAlbums={songs.filter((s) => !(s.album && s.album.trim())).length} onBackfill={backfillAlbums}
+          missingTitles={songs.filter((s) => s.title && s.title.trim() && !(s.titleEn && s.titleEn.trim())).length}
+          onBackfillTitles={backfillTitles} />
       )}
       {view === "add" && <AddSong onBack={() => setView("list")} onCreate={createSong} />}
       {view === "reader" && cur && (
@@ -637,13 +665,15 @@ function AddSong({ onBack, onCreate }) {
 }
 
 // ---- Settings (your own DeepL key) -----------------------------------------
-function Settings({ profile, hasOwnKey, targetLang, onSave, onSaveTarget, onBack, missingAlbums, onBackfill }) {
+function Settings({ profile, hasOwnKey, targetLang, onSave, onSaveTarget, onBack, missingAlbums, onBackfill, missingTitles, onBackfillTitles }) {
   const t = useT();
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [bfBusy, setBfBusy] = useState(false);
   const [bfMsg, setBfMsg] = useState("");
+  const [btBusy, setBtBusy] = useState(false);
+  const [btMsg, setBtMsg] = useState("");
   const used = profile?.trial_used || 0;
   const save = async () => { if (!key.trim() || busy) return; setBusy(true); const ok = await onSave(key.trim()); setBusy(false); if (ok) setKey(""); };
   const remove = async () => { setBusy(true); await onSave(""); setBusy(false); };
@@ -652,6 +682,12 @@ function Settings({ profile, hasOwnKey, targetLang, onSave, onSaveTarget, onBack
     setBfBusy(true); setBfMsg("");
     const { total, filled } = await onBackfill();
     setBfBusy(false); setBfMsg(t("albumsFilled", { filled, total }));
+  };
+  const runBackfillTitles = async () => {
+    if (btBusy) return;
+    setBtBusy(true); setBtMsg("");
+    const { total, filled } = await onBackfillTitles();
+    setBtBusy(false); setBtMsg(t("titlesDone", { filled, total }));
   };
   return (
     <>
@@ -697,6 +733,19 @@ function Settings({ profile, hasOwnKey, targetLang, onSave, onSaveTarget, onBack
               </button>
             </div>
             {bfMsg && <p className="setstate ok">{bfMsg}</p>}
+          </div>
+        )}
+
+        {(missingTitles > 0 || btMsg) && (
+          <div className="setcard" style={{ marginTop: 16 }}>
+            <h3>{t("transTitlesH")}</h3>
+            <p className="setstate">{t("transTitlesBody", { n: missingTitles })}</p>
+            <div className="setbtns">
+              <button className="save" onClick={runBackfillTitles} disabled={btBusy || missingTitles === 0}>
+                {btBusy ? t("transTitlesBusy") : t("transTitlesBtn")}
+              </button>
+            </div>
+            {btMsg && <p className="setstate ok">{btMsg}</p>}
           </div>
         )}
       </div>
@@ -825,7 +874,13 @@ function Reader({ song, targetLang, onBack, onEdit, onPractice, onFoundMedia }) 
       <div className="rhead2">
         <div className="rbar">
           <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
-          <div className="ttl"><h2>{song.title}</h2><p>{[song.artist, song.language].filter(Boolean).join(" · ")}</p></div>
+          <div className="ttl">
+            <h2>{song.title}</h2>
+            {song.titleEn && norm(song.titleEn) !== norm(song.title) && <p className="ttltrans">{song.titleEn}</p>}
+            <p>{[song.artist,
+                 song.album ? song.album + (song.albumEn && norm(song.albumEn) !== norm(song.album) ? ` (${song.albumEn})` : "") : "",
+                 song.language].filter(Boolean).join(" · ")}</p>
+          </div>
           {has ? <button className="icbtn" onClick={onPractice}>{t("practice")}</button> : null}
           <button className="icbtn accent" onClick={onEdit}>{t("edit")}</button>
         </div>
@@ -1045,6 +1100,8 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
   const [title, setTitle] = useState(song.title);
   const [artist, setArtist] = useState(song.artist || "");
   const [album, setAlbum] = useState(song.album || "");
+  const [titleEn, setTitleEn] = useState(song.titleEn || "");
+  const [albumEn, setAlbumEn] = useState(song.albumEn || "");
   const [language, setLanguage] = useState(song.language || "Polish");
   const [pl, setPl] = useState(song.pl || "");
   const [en, setEn] = useState(song.en || "");
@@ -1080,10 +1137,13 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
   useEffect(() => { if (!(song.pl || "").trim()) fetchLyrics(true); /* eslint-disable-next-line */ }, []);
 
   async function autoTranslate() {
-    const lines = pl.split("\n");
+    const lyrics = pl.split("\n");
     if (!pl.trim()) { flash(t("tPasteFirst")); return; }
     setBusy(true);
     try {
+      // Translate the title + album in the SAME call as the lyrics (one request,
+      // no extra quota). They ride at the end; blanks come back blank.
+      const lines = [...lyrics, title.trim(), album.trim()];
       const r = await fetch("/api/translate", {
         method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
         body: JSON.stringify({ lines, source: langOf(language).code, target: langOf(targetLang || "English").code, provider }),
@@ -1091,7 +1151,11 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
       if (r.status === 402) { setTrialOut(true); setBusy(false); return; } // free trial used up
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || "Translation failed");
-      setEn((j.translations || []).join("\n"));
+      const tr = (j.translations || []).slice();
+      const albumTr = tr.pop(); const titleTr = tr.pop(); // last two are album, title
+      setEn(tr.join("\n"));
+      setTitleEn(titleTr || "");
+      setAlbumEn(albumTr || "");
       if (j.usedOwnKey) flash(t("tTranslated"));
       else if (typeof j.trialRemaining === "number") flash(j.trialRemaining > 0
         ? t("tTrLeft", { n: j.trialRemaining })
@@ -1122,9 +1186,9 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
       </div>
       <div className="editor">
         <div className="meta3">
-          <div><label>{t("title")}</label><input value={title} onChange={(e) => setTitle(e.target.value)} /></div>
+          <div><label>{t("title")}</label><input value={title} onChange={(e) => { setTitle(e.target.value); setTitleEn(""); }} /></div>
           <div><label>{t("artist")}</label><input value={artist} onChange={(e) => setArtist(e.target.value)} /></div>
-          <div><label>{t("album")} <span className="opt">{t("optional")}</span></label><input value={album} onChange={(e) => setAlbum(e.target.value)} /></div>
+          <div><label>{t("album")} <span className="opt">{t("optional")}</span></label><input value={album} onChange={(e) => { setAlbum(e.target.value); setAlbumEn(""); }} /></div>
           <div><label>{t("language")}</label>
             <select value={language} onChange={(e) => setLanguage(e.target.value)}>
               {LANGS.map((l) => <option key={l.name} value={l.name}>{l.name}</option>)}
@@ -1169,7 +1233,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
         )}
         <p className="hint2">{t("translateHint")}</p>
         <div className="actions">
-          <button className="save" onClick={() => onSave({ title: title.trim() || song.title, artist: artist.trim(), album: album.trim(), language, pl, en })}>{t("save")}</button>
+          <button className="save" onClick={() => onSave({ title: title.trim() || song.title, artist: artist.trim(), album: album.trim(), titleEn: titleEn.trim(), albumEn: albumEn.trim(), language, pl, en })}>{t("save")}</button>
           <button className="cancel" onClick={onBack}>{t("cancel")}</button>
         </div>
         <button className="danger" onClick={onRemove}>{t("removeSong")}</button>
@@ -1263,6 +1327,7 @@ const CSS = `
 .icbtn{ background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:10px; height:38px; min-width:38px; padding:0 12px; cursor:pointer; font-size:14px; font-family:var(--ui); line-height:1; }
 .icbtn.accent{ background:var(--rose); border-color:var(--rose); color:#20140f; font-weight:600; }
 .rbar .ttl{ flex:1; min-width:0; } .rbar .ttl h2{ margin:0; font-family:var(--display); font-weight:900; font-size:19px; color:#f3ede1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .rbar .ttl p{ margin:2px 0 0; font-size:12px; color:var(--mist-dim); }
+.rbar .ttl .ttltrans{ color:var(--mist); font-style:italic; font-size:12.5px; margin:1px 0 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .rhead2{ position:sticky; top:0; z-index:4; background:var(--night); box-shadow:0 12px 20px -14px rgba(0,0,0,.6); }
 .playerbox{ padding:12px 16px 12px; }
 .plcontrols{ display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:9px; }
