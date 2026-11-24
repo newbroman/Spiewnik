@@ -78,8 +78,17 @@ export default function App() {
   const [curId, setCurId] = useState(null);
   const [provider, setProvider] = useState(() => { try { return localStorage.getItem(PROVIDER_KEY) || "deepl"; } catch { return "deepl"; } });
   const [toast, setToast] = useState("");
+  const [showTour, setShowTour] = useState(false);
 
   const flash = (m) => { setToast(m); clearTimeout(flash._t); flash._t = setTimeout(() => setToast(""), 2800); };
+
+  // First-run welcome tour (once per device).
+  useEffect(() => {
+    if (session && profileLoaded) {
+      try { if (!localStorage.getItem("spiewnik-tour-v1")) setShowTour(true); } catch {}
+    }
+  }, [session, profileLoaded]);
+  const endTour = () => { setShowTour(false); try { localStorage.setItem("spiewnik-tour-v1", "1"); } catch {} };
 
   // --- Auth: track the session and keep the API token in sync ----------------
   useEffect(() => {
@@ -246,7 +255,8 @@ export default function App() {
           onFeedback={() => setView("feedback")}
         />
       )}
-      {view === "help" && <Help onBack={() => setView("list")} />}
+      {view === "help" && <Help onBack={() => setView("list")} onReplayTour={() => { setView("list"); setShowTour(true); }} />}
+      {showTour && <TourOverlay onClose={endTour} onAdd={() => { endTour(); setView("add"); }} />}
       {view === "feedback" && (
         <Feedback email={session.user.email} onBack={() => setView("list")}
           onSent={() => { setView("list"); flash(t("feedbackThanks")); }} />
@@ -490,8 +500,12 @@ function ListView({ songs, loading, email, onOpen, onDelete, onAdd, onSettings, 
         {loading ? (
           <div className="emptylib">{t("loading")}</div>
         ) : songs.length === 0 ? (
-          <div className="emptylib">
-            {t("nothingHere")}<br />{t("tapAddToStart")}
+          <div className="emptyhero">
+            <div className="emptyicon">♪</div>
+            <h3>{t("emptyTitle")}</h3>
+            <p>{t("emptyBody")}</p>
+            <button className="add big" onClick={onAdd}>{t("addFirst")}</button>
+            <button className="emptyhelp" onClick={onHelp}>{t("emptyHow")}</button>
           </div>
         ) : query.trim() ? (
           matches.length === 0 ? (
@@ -846,9 +860,39 @@ function Settings({ profile, hasOwnKey, targetLang, onSave, onSaveTarget, onBack
   );
 }
 
-function Help({ onBack }) {
+function TourOverlay({ onClose, onAdd }) {
   const t = useT();
-  const items = ["Add", "Lyrics", "Translate", "Read", "Play", "Practice"];
+  const [i, setI] = useState(0);
+  const slides = [
+    { ic: "🎵", h: t("tour1H"), b: t("tour1B") },
+    { ic: "➕", h: t("tour2H"), b: t("tour2B") },
+    { ic: "🔤", h: t("tour3H"), b: t("tour3B") },
+    { ic: "🎤", h: t("tour4H"), b: t("tour4B") },
+  ];
+  const last = i === slides.length - 1;
+  const s = slides[i];
+  return (
+    <div className="tourwrap" role="dialog" aria-modal="true">
+      <div className="tourcard">
+        <button className="tourskip" onClick={onClose}>{t("tourSkip")}</button>
+        <div className="touricon">{s.ic}</div>
+        <h2>{s.h}</h2>
+        <p>{s.b}</p>
+        <div className="tourdots">{slides.map((_, k) => <span key={k} className={k === i ? "on" : ""} />)}</div>
+        <div className="tournav">
+          {i > 0 && <button className="pracbtn" onClick={() => setI(i - 1)}>{t("prev")}</button>}
+          {last
+            ? <button className="add" onClick={onAdd}>{t("tourAdd")}</button>
+            : <button className="add" onClick={() => setI(i + 1)}>{t("tourNext")}</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Help({ onBack, onReplayTour }) {
+  const t = useT();
+  const items = ["HowItWorks", "Add", "Lyrics", "Translate", "Read", "Play", "Practice", "Copyright", "Downloads"];
   return (
     <>
       <div className="rbar">
@@ -862,6 +906,9 @@ function Help({ onBack }) {
             <p className="setstate">{t("help" + k + "B")}</p>
           </div>
         ))}
+        {onReplayTour && (
+          <button className="manuallink" onClick={onReplayTour}>{t("replayTour")}</button>
+        )}
       </div>
     </>
   );
@@ -1483,6 +1530,27 @@ const CSS = `
 .top p{ margin:7px 0 0; font-size:13px; color:var(--mist-dim); }
 .body{ flex:1; padding:6px 16px 60px; }
 .emptylib{ text-align:center; color:var(--mist-dim); padding:48px 20px; font-size:14px; line-height:1.6; } .emptylib b{ color:#f0ebe0; }
+.emptyhero{ text-align:center; padding:42px 20px 24px; }
+.emptyhero .emptyicon{ font-family:var(--display); font-size:44px; color:var(--rose); line-height:1; }
+.emptyhero h3{ font-family:var(--display); font-size:22px; margin:14px 0 6px; color:#f3ede1; }
+.emptyhero p{ color:var(--mist-dim); font-size:14px; line-height:1.6; margin:0 auto 20px; max-width:320px; }
+.add.big{ font-size:16px; padding:15px; }
+.emptyhelp{ display:block; margin:14px auto 0; background:none; border:0; color:var(--rose); font-size:13px; cursor:pointer; }
+
+/* Welcome tour */
+.tourwrap{ position:fixed; inset:0; z-index:50; background:rgba(10,14,22,.72); backdrop-filter:blur(3px); display:grid; place-items:center;
+  padding:max(20px,env(safe-area-inset-top)) 20px max(20px,env(safe-area-inset-bottom)); }
+.tourcard{ position:relative; width:100%; max-width:380px; background:var(--night); border:1px solid var(--line); border-radius:20px; padding:30px 24px 22px; text-align:center; }
+.tourskip{ position:absolute; top:12px; right:14px; background:none; border:0; color:var(--mist-dim); font-size:13px; cursor:pointer; }
+.touricon{ font-size:46px; line-height:1; }
+.tourcard h2{ font-family:var(--display); font-size:23px; margin:14px 0 8px; color:#f3ede1; }
+.tourcard p{ color:var(--mist); font-size:14.5px; line-height:1.6; margin:0 auto 18px; }
+.tourdots{ display:flex; gap:7px; justify-content:center; margin:4px 0 18px; }
+.tourdots span{ width:7px; height:7px; border-radius:50%; background:var(--line); }
+.tourdots span.on{ background:var(--rose); }
+.tournav{ display:flex; gap:10px; }
+.tournav .add{ flex:1; }
+.tournav .pracbtn{ flex:none; }
 .albsect{ font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--mist-dim); padding:20px 4px 10px; display:flex; align-items:center; gap:10px; }
 .albsect::after{ content:""; flex:1; height:1px; background:var(--line); }
 .artsect{ font-family:var(--display); font-weight:600; font-size:15px; color:#e4d9c6; padding:12px 4px 8px; }
