@@ -1463,6 +1463,9 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
   const [showLink, setShowLink] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [extractBusy, setExtractBusy] = useState(false);
+  const linkRef = useRef(null);
+  // When auto-find comes up empty, point the user at the link field.
+  useEffect(() => { if (showLink && linkRef.current) { try { linkRef.current.focus(); } catch {} } }, [showLink]);
 
   useEffect(() => {
     let ok = true;
@@ -1642,27 +1645,41 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
         <div className="cols">
           <div>
             <label>{language} <span className="opt">{t("pasteWhole")}</span></label>
-            <textarea value={pl} onChange={(e) => setPl(normLines(e.target.value))} onPaste={onPasteLyrics} placeholder={fetching ? t("fetching") : t("lyricBoxPh")} />
-            <div className="lyrrow">
-              <button className="fetch" onClick={() => fetchLyrics(false)} disabled={fetching}>{fetching ? (fetchStage || t("fetching")) : t("getLyricsBtn")}</button>
-              {aiOk && (
-                <button className="fetch" onClick={() => setShowLink((v) => !v)}>{t("fromLink")}</button>
-              )}
-              <a className="findbtn" href={findUrl} target="_blank" rel="noreferrer">{t("findGoogle")}</a>
-              {aiOk && pl.trim() && (
-                <button className="fetch" onClick={tidyLyrics} disabled={tidyBusy}>{tidyBusy ? t("tidyBusy") : t("fixLines")}</button>
-              )}
-            </div>
-            {showLink && (
-              <div className="linkrow">
-                <input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder={t("linkPh")} autoFocus
-                  onKeyDown={(e) => e.key === "Enter" && extractFromLink()} />
-                <button className="fetch" onClick={extractFromLink} disabled={extractBusy || !linkUrl.trim()}>
-                  {extractBusy ? t("extracting") : t("getLyrics")}
-                </button>
+            <textarea value={pl} onChange={(e) => setPl(normLines(e.target.value))} onPaste={onPasteLyrics} placeholder={fetching ? t("fetching") : t(aiOk ? "lyricBoxPh" : "lyricBoxPhPlain")} />
+            {aiOk && pl.trim() && (
+              <div className="lyr-tidy">
+                <span>{t("lyrTidyHint")}</span>
+                <button type="button" className="lyr-btn" onClick={tidyLyrics} disabled={tidyBusy}>{tidyBusy ? t("tidyBusy") : t("lyrTidyBtn")}</button>
               </div>
             )}
-            <p className="findhint">{t("findHint")}</p>
+            <div className="lyr-src">
+              <div className="lyr-opt">
+                <button type="button" className={"lyr-find" + (pl.trim() ? " quiet" : "")} onClick={() => fetchLyrics(false)} disabled={fetching}>
+                  {fetching ? (fetchStage || t("fetching")) : t("lyrFind")}
+                </button>
+                <p className="lyr-note">{t("lyrFindHint")}</p>
+              </div>
+              {aiOk && (
+                <div className={"lyr-opt lyr-link" + (showLink ? " hot" : "")}>
+                  <label htmlFor="lyr-link-in">{t("lyrLinkLabel")}</label>
+                  <div className="linkrow">
+                    <input id="lyr-link-in" ref={linkRef} type="url" inputMode="url" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+                      value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder={t("lyrLinkPh")}
+                      onKeyDown={(e) => e.key === "Enter" && extractFromLink()} />
+                    <button type="button" className="lyr-btn" onClick={extractFromLink} disabled={extractBusy || !linkUrl.trim()}>
+                      {extractBusy ? t("extracting") : t("lyrLinkBtn")}
+                    </button>
+                  </div>
+                  <p className="lyr-note">{t("lyrLinkHint")}</p>
+                </div>
+              )}
+              <div className="lyr-opt lyr-web">
+                <p className="lyr-note">
+                  <a href={findUrl} target="_blank" rel="noreferrer">{t("lyrWebBtn")}<span aria-hidden="true"> ↗</span></a>
+                  {" "}{t(aiOk ? "lyrWebHint" : "lyrWebHintPlain")}
+                </p>
+              </div>
+            </div>
           </div>
           <div>
             <label>{targetLang || "English"} <span className="opt">{t("autoOrType")}</span></label>
@@ -1850,13 +1867,23 @@ const CSS = `
 .editor .opt{ text-transform:none; letter-spacing:0; font-weight:400; color:var(--mist-dim); margin-left:6px; }
 .editor textarea{ width:100%; min-height:300px; background:var(--night-2); border:1px solid var(--line); border-radius:12px; padding:12px 13px; color:#eef1f6; font-size:14px; line-height:1.55; outline:0; resize:vertical; font-family:var(--serif); }
 .editor textarea.en{ font-family:var(--ui); } .editor textarea:focus{ border-color:var(--rose); }
-.linkrow{ display:flex; gap:8px; margin-top:8px; }
-.linkrow input{ flex:1; min-width:0; background:var(--night-2); border:1px solid var(--line); border-radius:11px; padding:10px 12px; color:#eef1f6; font-family:var(--ui); font-size:13.5px; outline:0; }
+.linkrow{ display:flex; flex-wrap:wrap; gap:8px; }
+.linkrow input{ flex:1 1 150px; min-width:0; background:var(--night-2); border:1px solid var(--line); border-radius:11px; padding:10px 12px; color:#eef1f6; font-family:var(--ui); font-size:13.5px; outline:0; }
 .linkrow input:focus{ border-color:var(--rose); }
-.lyrrow{ display:flex; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap; }
 .editor .findbtn{ background:var(--rose); color:#20140f; border:0; border-radius:10px; padding:10px 16px; font-family:var(--ui); font-size:13px; font-weight:600; cursor:pointer; text-decoration:none; display:inline-block; }
-.editor .fetch{ background:var(--night-3); border:1px solid var(--line); color:#eef1f6; border-radius:10px; padding:10px 14px; font-family:var(--ui); font-size:13px; font-weight:500; cursor:pointer; } .editor .fetch:disabled{ opacity:.55; cursor:default; }
-.editor .findhint{ font-size:11.5px; color:var(--mist-dim); margin:8px 2px 0; line-height:1.5; }
+.lyr-src{ margin-top:10px; }
+.lyr-opt + .lyr-opt{ margin-top:14px; padding-top:14px; border-top:1px solid var(--line); }
+.editor .lyr-find{ display:block; width:100%; background:var(--rose); color:#20140f; border:1px solid var(--rose); border-radius:12px; padding:13px 16px; font-family:var(--ui); font-size:15px; font-weight:600; cursor:pointer; }
+.editor .lyr-find.quiet{ background:none; color:var(--rose); }
+.editor .lyr-find:disabled{ opacity:.6; cursor:default; }
+.editor .lyr-btn{ flex:none; background:var(--night-3); border:1px solid var(--line); color:#eef1f6; border-radius:10px; padding:10px 13px; font-family:var(--ui); font-size:13px; font-weight:500; cursor:pointer; white-space:nowrap; }
+.editor .lyr-btn:disabled{ opacity:.5; cursor:default; }
+.editor .lyr-note{ font-size:12px; color:var(--mist-dim); margin:7px 2px 0; line-height:1.5; }
+.editor .lyr-link label{ text-transform:none; letter-spacing:0; font-size:13px; font-weight:500; color:var(--mist); }
+.lyr-link.hot .linkrow input{ border-color:var(--rose); }
+.editor .lyr-web .lyr-note{ margin-top:0; }
+.editor .lyr-web a{ color:var(--mist); font-weight:600; text-decoration:underline; text-underline-offset:3px; white-space:nowrap; }
+.lyr-tidy{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:8px; font-size:12px; line-height:1.4; color:var(--mist-dim); }
 .trrow{ display:flex; gap:8px; margin-top:8px; }
 .trrow .tr{ flex:1; background:var(--night-3); border:1px solid var(--line); color:#eef1f6; border-radius:10px; padding:10px; font-family:var(--ui); font-size:13px; font-weight:500; cursor:pointer; }
 .trrow .tr:disabled{ opacity:.55; cursor:default; }
