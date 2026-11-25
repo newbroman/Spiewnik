@@ -245,6 +245,27 @@ async function extractLyricFromText(KEY, pageText, language) {
   return /^none\b/i.test(out) || out.length < 12 ? "" : out;
 }
 
+// Fallback when the web search finds nothing: let the model supply the lyric
+// from its own knowledge. Reliable for traditional / children's / folk /
+// public-domain songs — exactly the ones a datacenter-IP web search misses.
+async function lyricFromKnowledge(KEY, artist, title, language) {
+  const prompt =
+    `You are helping a language learner add a song to their personal study library.` +
+    ` Give the full, exact lyric of the song "${title}"${artist ? ` by ${artist}` : ""}${language ? `, in ${language}` : ""}` +
+    ` — but ONLY if it is a traditional, folk, children's or public-domain song, or one whose words you are confident you remember verbatim.` +
+    ` Output ONLY the lyric: one sung line per line, verses separated by a single blank line, words and spelling exactly as sung,` +
+    ` with no title, translation, chords, notes or commentary.` +
+    ` If you are not confident of the exact words, reply with exactly: NONE.`;
+  const r = await fetch(CHAT, {
+    method: "POST", headers: { Authorization: "Bearer " + KEY, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "user", content: prompt }], temperature: 0 }),
+  });
+  if (!r.ok) return "";
+  const j = await r.json();
+  const out = (j.choices?.[0]?.message?.content || "").trim();
+  return /^none\b/i.test(out) || out.length < 12 ? "" : out;
+}
+
 async function opFindlyrics(KEY, body) {
   const artist = ((body && body.artist) || "").toString().trim();
   const title = ((body && body.title) || "").toString().trim();
@@ -262,19 +283,24 @@ async function opFindlyrics(KEY, body) {
   links = links.filter((u) => { const k = u.split(/[?#]/)[0]; if (seen.has(k)) return false; seen.add(k); return true; });
   links.sort((a, b) => (PREFER.test(b) ? 1 : 0) - (PREFER.test(a) ? 1 : 0));
   const candidates = links.slice(0, 6);
-  if (!candidates.length) return { text: "" };
 
-  const pages = await Promise.all(candidates.map(async (url) => {
-    const html = await fetchText(url, 7000);
-    return { url, text: html ? htmlToText(html) : "" };
-  }));
-
-  for (const p of pages) {
-    if (Date.now() > deadline) break;
-    if (!p.text || p.text.length < 40) continue;
-    const lyric = await extractLyricFromText(KEY, p.text, language);
-    if (lyric) return { text: lyric, source: p.url };
+  if (candidates.length) {
+    const pages = await Promise.all(candidates.map(async (url) => {
+      const html = await fetchText(url, 7000);
+      return { url, text: html ? htmlToText(html) : "" };
+    }));
+    for (const p of pages) {
+      if (Date.now() > deadline) break;
+      if (!p.text || p.text.length < 40) continue;
+      const lyric = await extractLyricFromText(KEY, p.text, language);
+      if (lyric) return { text: lyric, source: p.url };
+    }
   }
+
+  // Nothing usable from the web — ask the model directly.
+  const known = await lyricFromKnowledge(KEY, artist, title, language);
+  if (known) return { text: known, source: "ai" };
+
   return { text: "" };
 }
 
