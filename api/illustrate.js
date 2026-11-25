@@ -10,7 +10,8 @@
 //  POST /api/illustrate  { lines, language }     -> { emoji: ["…", "", …] }
 // ============================================================================
 
-import { authorized, ALLOW_HEADERS } from "./_auth.js";
+import { ALLOW_HEADERS } from "./_auth.js";
+import { gateAI } from "./_aicap.js";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -22,8 +23,11 @@ export default async function handler(req, res) {
   if (req.method === "GET") return res.status(200).json({ configured: !!KEY });
 
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  if (!(await authorized(req))) return res.status(401).json({ error: "Unauthorized" });
+  const gate = await gateAI(req);
+  if (gate.status === 401) return res.status(401).json({ error: "Unauthorized" });
+  if (gate.status === 429) return res.status(429).json({ error: "ai_limit", message: "You've reached this month's limit for the smart features.", limit: gate.limit });
   if (!KEY) return res.status(503).json({ error: "Illustration not configured." });
+  await gate.charge();
 
   const lines = Array.isArray(req.body && req.body.lines) ? req.body.lines.slice(0, 80) : [];
   const language = ((req.body && req.body.language) || "").toString().trim();

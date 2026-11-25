@@ -10,7 +10,8 @@
 //  POST /api/transcribe  { audio(base64), mime, language } -> { text }
 // ============================================================================
 
-import { authorized, ALLOW_HEADERS } from "./_auth.js";
+import { ALLOW_HEADERS } from "./_auth.js";
+import { gateAI } from "./_aicap.js";
 
 export const config = { api: { bodyParser: { sizeLimit: "8mb" } } };
 
@@ -26,8 +27,11 @@ export default async function handler(req, res) {
   if (req.method === "GET") return res.status(200).json({ configured: !!KEY });
 
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  if (!(await authorized(req))) return res.status(401).json({ error: "Unauthorized" });
+  const gate = await gateAI(req);
+  if (gate.status === 401) return res.status(401).json({ error: "Unauthorized" });
+  if (gate.status === 429) return res.status(429).json({ error: "ai_limit", message: "You've reached this month's limit for the smart features.", limit: gate.limit });
   if (!KEY) return res.status(503).json({ error: "Transcription not configured." });
+  await gate.charge();
 
   try {
     const { audio, mime, language } = req.body || {};
