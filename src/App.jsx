@@ -990,6 +990,32 @@ function Reader({ song, targetLang, onBack, onEdit, onPractice, onFoundMedia }) 
   const pick = (s) => { setSource(s); try { localStorage.setItem(PLAYER_KEY, s); } catch {} };
 
   const [autoScroll, setAutoScroll] = useState(false);
+  const [immersive, setImmersive] = useState(false);   // hide the translation; tap a line to reveal
+  const [revealed, setRevealed] = useState({});        // line indices peeked in immersive mode
+  const [emoji, setEmoji] = useState(null);            // emoji per line, or null when off
+  const [emojiBusy, setEmojiBusy] = useState(false);
+  const [illustOk, setIllustOk] = useState(false);     // OpenAI key present → emoji anchors offered
+
+  useEffect(() => {
+    let ok = true;
+    fetch("/api/illustrate", { headers: apiHeaders() }).then((r) => r.json())
+      .then((j) => { if (ok) setIllustOk(!!(j && j.configured)); }).catch(() => {});
+    return () => { ok = false; };
+  }, []);
+
+  const illustrate = async () => {
+    if (emojiBusy) return;
+    if (emoji) { setEmoji(null); return; }              // toggle the anchors off
+    setEmojiBusy(true);
+    try {
+      const r = await fetch("/api/illustrate", {
+        method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
+        body: JSON.stringify({ lines: pl.map((l) => l.trim()), language: song.language }),
+      });
+      const j = await r.json();
+      if (Array.isArray(j.emoji)) setEmoji(j.emoji);
+    } catch {} finally { setEmojiBusy(false); }
+  };
   const [scrollSpeed, setScrollSpeed] = useState(8);
   useEffect(() => {
     if (!autoScroll) return;
@@ -1058,22 +1084,51 @@ function Reader({ song, targetLang, onBack, onEdit, onPractice, onFoundMedia }) 
         )}
       </div>
       <div className="sheet">
-        <div className="sheethead"><span>{song.language}</span><span>{targetLang || "English"}</span></div>
+        {has && (
+          <div className="sheettools">
+            <button className={"stool" + (immersive ? " on" : "")} onClick={() => setImmersive((v) => !v)}>{t("immersive")}</button>
+            {illustOk && (
+              <button className={"stool" + (emoji ? " on" : "")} onClick={illustrate} disabled={emojiBusy}>
+                {emojiBusy ? "…" : t("illustrate")}
+              </button>
+            )}
+          </div>
+        )}
         {!has ? (
           <div className="emptysheet">{t("noLyricsHere")}<br />{t("tapEditToPaste")}</div>
-        ) : (
-          <div className="grid">
+        ) : immersive ? (
+          <div className="imm">
             {Array.from({ length: n }).map((_, i) => {
               const p = (pl[i] || "").trim(), e = (en[i] || "").trim();
-              if (!p && !e) return <React.Fragment key={i}><div className="cell gap pl" /><div className="cell gap en" /></React.Fragment>;
+              if (!p && !e) return <div key={i} className="immgap" />;
+              const open = !!revealed[i];
               return (
-                <React.Fragment key={i}>
-                  <div className="cell pl">{esc(p) || " "}</div>
-                  <div className="cell en">{esc(e) || " "}</div>
-                </React.Fragment>
+                <button key={i} className={"immline" + (open ? " open" : "")}
+                  onClick={() => setRevealed((r) => ({ ...r, [i]: !r[i] }))}>
+                  {emoji && emoji[i] ? <span className="immemoji">{emoji[i]}</span> : null}
+                  <span className="immpl">{esc(p) || " "}</span>
+                  {open && e ? <span className="immen">{esc(e)}</span> : null}
+                </button>
               );
             })}
+            <p className="immhint">{t("immHint")}</p>
           </div>
+        ) : (
+          <>
+            <div className="sheethead"><span>{song.language}</span><span>{targetLang || "English"}</span></div>
+            <div className="grid">
+              {Array.from({ length: n }).map((_, i) => {
+                const p = (pl[i] || "").trim(), e = (en[i] || "").trim();
+                if (!p && !e) return <React.Fragment key={i}><div className="cell gap pl" /><div className="cell gap en" /></React.Fragment>;
+                return (
+                  <React.Fragment key={i}>
+                    <div className="cell pl">{emoji && emoji[i] ? <span className="cememoji">{emoji[i]} </span> : null}{esc(p) || " "}</div>
+                    <div className="cell en">{esc(e) || " "}</div>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
     </>
@@ -1625,6 +1680,22 @@ const CSS = `
 .cell.en{ font-family:var(--ui); font-size:14px; line-height:1.62; color:var(--ink-soft); border-left:1px solid var(--rule); }
 .cell.gap{ height:12px; padding:0; } .cell.gap.en{ border-left:1px solid var(--rule); }
 .emptysheet{ text-align:center; color:#8d8171; padding:34px 20px; font-size:13.5px; line-height:1.6; } .emptysheet b{ color:var(--ink); }
+.cememoji{ font-size:15px; }
+/* sheet toolbar (immersive / illustrate) */
+.sheettools{ display:flex; gap:8px; padding:10px 14px 4px; flex-wrap:wrap; }
+.stool{ background:transparent; border:1px solid var(--rule); border-radius:999px; padding:6px 13px; font-family:var(--ui); font-size:12.5px; font-weight:600; color:#8d8171; cursor:pointer; }
+.stool.on{ background:var(--ink); border-color:var(--ink); color:var(--paper); }
+.stool:disabled{ opacity:.55; cursor:default; }
+/* immersive mode */
+.imm{ padding:6px 4px 4px; }
+.immline{ display:block; width:100%; text-align:left; background:transparent; border:0; border-bottom:1px solid var(--rule); padding:11px 14px; cursor:pointer; }
+.immline:last-of-type{ border-bottom:0; }
+.immline .immemoji{ font-size:19px; margin-right:10px; vertical-align:middle; }
+.immline .immpl{ font-family:var(--serif); font-size:18px; line-height:1.5; color:var(--ink); }
+.immline .immen{ display:block; font-family:var(--ui); font-size:13.5px; line-height:1.55; color:var(--ink-soft); margin-top:5px; }
+.immline.open{ background:rgba(0,0,0,.03); }
+.immgap{ height:12px; }
+.immhint{ text-align:center; color:#8d8171; font-size:12px; padding:14px 20px 4px; line-height:1.5; }
 .editor{ padding:16px; }
 .editor .cols{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
 .editor label{ display:block; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--mist-dim); margin:0 0 7px; }

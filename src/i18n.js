@@ -83,6 +83,8 @@ const EN = {
   getReady: "Get ready…", speakNow: "Speak now", hearYourself: "Hear yourself",
   recSelf: "🎙 Record yourself", recStop: "⏹ Stop recording", checking: "Checking…",
   slowHint: "Double-tap Listen for half speed",
+  immersive: "Immersive", illustrate: "😊 Illustrate",
+  immHint: "Immersive mode — read the song in its own language; tap a line to reveal its meaning.",
   noPracticeYet: "No lyrics to practise yet — add them under Edit first.",
   prev: "← Prev", next: "Next →",
   // editor
