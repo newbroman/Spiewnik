@@ -24,25 +24,30 @@ import { authorized, getUser, ALLOW_HEADERS, SUPABASE_URL, SUPABASE_ANON } from 
 
 // How many translations a signed-in person may run on the SHARED key before
 // they're asked to add their own. One-line change if you want it stricter.
-const FREE_LIMIT = 3;
+// Free shared-key songs per user PER MONTH (resets each calendar month).
+const FREE_LIMIT = 30;
+const curMonth = () => new Date().toISOString().slice(0, 7); // "2026-11"
 
-// Read a user's profile row (their own DeepL key + how much trial they've used).
+// Read a user's profile row (their own DeepL key + this month's trial use).
 async function getProfile(user) {
   try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}&select=deepl_key,trial_used`,
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}&select=deepl_key,trial_used,trial_month`,
       { headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${user.token}` } });
     if (!r.ok) return null;
     const a = await r.json();
     return a[0] || null;
   } catch { return null; }
 }
-// Record one more shared-key translation for this user (upsert their profile).
+// Songs this user has used on the shared key in the CURRENT month (0 after a month rolls over).
+const usedThisMonth = (prof) => (prof && prof.trial_month === curMonth() ? (prof.trial_used || 0) : 0);
+
+// Record one more shared-key translation for this user, stamped with the month.
 async function bumpTrial(user, n) {
   try {
     await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
       method: "POST",
       headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${user.token}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
-      body: JSON.stringify([{ id: user.id, trial_used: n, updated_at: new Date().toISOString() }]),
+      body: JSON.stringify([{ id: user.id, trial_used: n, trial_month: curMonth(), updated_at: new Date().toISOString() }]),
     });
   } catch { /* best effort */ }
 }
@@ -76,11 +81,10 @@ export default async function handler(req, res) {
     prof = await getProfile(user);
     if (prof && prof.deepl_key && provider !== "google") personalKey = prof.deepl_key;
     if (!personalKey) {
-      const used = prof?.trial_used || 0;
-      if (used >= FREE_LIMIT) {
+      if (usedThisMonth(prof) >= FREE_LIMIT) {
         return res.status(402).json({
           error: "trial_exhausted",
-          message: "You've used your free translations. Add your own free DeepL key to keep translating.",
+          message: "You've used your free translations for this month. Add your own free DeepL key to keep translating.",
           limit: FREE_LIMIT,
         });
       }
@@ -103,7 +107,7 @@ export default async function handler(req, res) {
     // Charge the trial only for a successful shared-key translation.
     let trialRemaining = null;
     if (user && !personalKey) {
-      const n = (prof?.trial_used || 0) + 1;
+      const n = usedThisMonth(prof) + 1;
       await bumpTrial(user, n);
       trialRemaining = Math.max(0, FREE_LIMIT - n);
     }
