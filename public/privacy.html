@@ -19,7 +19,7 @@
 <body>
 <main>
   <h1>Śpiewnik — Privacy Policy</h1>
-  <p class="updated">Last updated: 23 November 2026</p>
+  <p class="updated">Last updated: 25 November 2026</p>
 
   <p>Śpiewnik ("the app") is a personal language-learning tool for reading song lyrics with
   translations. This policy explains what the app stores and who it is shared with. It is
@@ -54,18 +54,27 @@
     <li><strong>Supabase</strong> — accounts and database (stores your email and library).</li>
     <li><strong>DeepL</strong> (or Google Cloud Translation) — the text of a line you choose to
     translate.</li>
-    <li><strong>YouTube and Spotify</strong> — a song's title and artist, to find a matching
-    video or track for playback.</li>
-    <li><strong>iTunes Search API</strong> — your search text, when you search for a song to add.</li>
-    <li><strong>lyrics.ovh</strong> — a song's title and artist, to attempt an automatic lyric
-    lookup.</li>
+    <li><strong>OpenAI</strong> — used for the optional smart features: a short <em>voice
+    recording</em> when you use pronunciation practice or voice search (transcribed with Whisper),
+    and <em>text</em> for AI song suggestions, emoji illustration, tidying pasted lyrics, and
+    pulling the lyric out of a web page you point it at. These are processed to return a result
+    and are not stored by OpenAI for training.</li>
+    <li><strong>Spotify, iTunes and Deezer</strong> — your search text, to find songs to add; and a
+    song's title and artist, to find a matching track for playback.</li>
+    <li><strong>YouTube</strong> — a song's title and artist, to find a matching video for playback.</li>
+    <li><strong>lyrics.ovh and public lyrics pages</strong> — a song's title and artist for an
+    automatic lyric lookup; and, when you ask the app to find or extract lyrics, it fetches the
+    relevant web page to read the lyric from it.</li>
   </ul>
-  <p>These services have their own privacy policies and process that data under their own terms.</p>
+  <p>These services receive only what the feature needs, at the moment you use it, and process that
+  data under their own privacy policies and terms. The app does not send your voice or lyrics to any
+  of them except as described above.</p>
 
-  <h2>Pronunciation practice</h2>
-  <p>The practice feature uses your device's built-in speech recognition to score how closely
-  you repeat a line. Audio is processed by your device/browser's speech service and is not
-  recorded or stored by the app.</p>
+  <h2>Pronunciation practice and voice search</h2>
+  <p>When you tap to be scored on a line, or search by voice, the app records a short audio clip and
+  sends it to OpenAI's Whisper service to turn it into text. The clip is used only to produce that
+  text and is not stored by the app. These features need an internet connection; if you would rather
+  not send audio, simply don't use voice search or the speaking score.</p>
 
   <h2>Deleting your data</h2>
   <p>You can remove any song from your library at any time. To delete your account and all of

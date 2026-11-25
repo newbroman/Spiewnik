@@ -904,7 +904,7 @@ function TourOverlay({ onClose, onAdd }) {
 
 function Help({ onBack, onReplayTour }) {
   const t = useT();
-  const items = ["HowItWorks", "Add", "Lyrics", "Translate", "Read", "Play", "Practice", "Copyright", "Downloads"];
+  const items = ["HowItWorks", "Add", "Lyrics", "Translate", "Read", "Immersive", "Play", "Practice", "Copyright", "Downloads"];
   return (
     <>
       <div className="rbar">
