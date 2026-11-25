@@ -619,7 +619,7 @@ function AddSong({ onBack, onCreate }) {
   // Voice search and AI suggestions both need the OpenAI key; check once.
   useEffect(() => {
     let ok = true;
-    fetch("/api/suggest", { headers: apiHeaders() }).then((r) => r.json())
+    fetch("/api/ai", { headers: apiHeaders() }).then((r) => r.json())
       .then((j) => { if (ok) setOpenai(!!(j && j.configured)); }).catch(() => {});
     return () => { ok = false; };
   }, []);
@@ -650,7 +650,7 @@ function AddSong({ onBack, onCreate }) {
     seqRef.current++;                                  // cancel any pending live search
     setAiBusy(true); setSearched(true);
     try {
-      const r = await fetch("/api/suggest", {
+      const r = await fetch("/api/ai?op=suggest", {
         method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
         body: JSON.stringify({ query, language }),
       });
@@ -689,7 +689,7 @@ function AddSong({ onBack, onCreate }) {
       setBusy(true);
       try {
         const b64 = await blobToBase64(blob);
-        const r = await fetch("/api/transcribe", {
+        const r = await fetch("/api/ai?op=transcribe", {
           method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
           body: JSON.stringify({ audio: b64, mime: mime || "audio/webm", language: langOf(language).bcp.slice(0, 2) }),
         });
@@ -1031,7 +1031,7 @@ function Reader({ song, targetLang, onBack, onEdit, onPractice, onFoundMedia }) 
 
   useEffect(() => {
     let ok = true;
-    fetch("/api/illustrate", { headers: apiHeaders() }).then((r) => r.json())
+    fetch("/api/ai", { headers: apiHeaders() }).then((r) => r.json())
       .then((j) => { if (ok) setIllustOk(!!(j && j.configured)); }).catch(() => {});
     return () => { ok = false; };
   }, []);
@@ -1041,7 +1041,7 @@ function Reader({ song, targetLang, onBack, onEdit, onPractice, onFoundMedia }) 
     if (emoji) { setEmoji(null); return; }              // toggle the anchors off
     setEmojiBusy(true);
     try {
-      const r = await fetch("/api/illustrate", {
+      const r = await fetch("/api/ai?op=illustrate", {
         method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
         body: JSON.stringify({ lines: pl.map((l) => l.trim()), language: song.language }),
       });
@@ -1214,7 +1214,7 @@ function Practice({ song, onBack }) {
   // Pick the best available engine: Whisper when the server has a key, else the browser.
   useEffect(() => {
     let ok = true;
-    fetch("/api/transcribe", { headers: apiHeaders() })
+    fetch("/api/ai", { headers: apiHeaders() })
       .then((r) => r.json())
       .then((j) => { if (ok) setEngine(j && j.configured ? "whisper" : (Rec ? "browser" : "none")); })
       .catch(() => { if (ok) setEngine(Rec ? "browser" : "none"); });
@@ -1287,7 +1287,7 @@ function Practice({ song, onBack }) {
       setProcessing(true);
       try {
         const b64 = await blobToBase64(blob);
-        const r = await fetch("/api/transcribe", {
+        const r = await fetch("/api/ai?op=transcribe", {
           method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
           body: JSON.stringify({ audio: b64, mime: mime || "audio/webm", language: lang2 }),
         });
@@ -1469,7 +1469,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
 
   useEffect(() => {
     let ok = true;
-    fetch("/api/tidy", { headers: apiHeaders() }).then((r) => r.json())
+    fetch("/api/ai", { headers: apiHeaders() }).then((r) => r.json())
       .then((j) => { if (ok) setAiOk(!!(j && j.configured)); }).catch(() => {});
     return () => { ok = false; };
   }, []);
@@ -1500,7 +1500,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
     if (tidyBusy || !pl.trim()) return;
     setTidyBusy(true);
     try {
-      const r = await fetch("/api/tidy", {
+      const r = await fetch("/api/ai?op=tidy", {
         method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
         body: JSON.stringify({ text: pl, language }),
       });
@@ -1527,7 +1527,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
     if (extractBusy || !url) return;
     setExtractBusy(true);
     try {
-      const r = await fetch("/api/extract", {
+      const r = await fetch("/api/ai?op=extract", {
         method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
         body: JSON.stringify({ url, language }),
       });
@@ -1557,7 +1557,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
       // 2. Search the web for a lyrics page, fetch it, and extract — no URL to copy.
       if (aiOk) {
         setFetchStage(t("searchingWeb"));
-        const r2 = await fetch("/api/findlyrics", {
+        const r2 = await fetch("/api/ai?op=findlyrics", {
           method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
           body: JSON.stringify({ artist, title, language }),
         });
