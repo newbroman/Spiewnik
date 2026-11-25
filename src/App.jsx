@@ -6,6 +6,17 @@ import { makeT } from "./i18n.js";
 const I18n = React.createContext(makeT("English"));
 const useT = () => React.useContext(I18n);
 
+// A tiny toast bus so any view (not just those handed `flash`) can raise one.
+// The App subscribes once and relays through its own `flash`.
+const toastBus = typeof window !== "undefined" ? new EventTarget() : null;
+const flashGlobal = (m) => { try { toastBus && toastBus.dispatchEvent(new CustomEvent("spiewnik-toast", { detail: m })); } catch {} };
+// If an OpenAI-backed call was refused for hitting the monthly cap (HTTP 429),
+// show a friendly toast and tell the caller to stop. `tr` is the view's translator.
+function aiCapHit(r, tr) {
+  if (r && r.status === 429) { flashGlobal(tr("aiLimit")); return true; }
+  return false;
+}
+
 // ============================================================================
 //  Śpiewnik — learn a language through song lyrics, line by line.
 //
@@ -93,6 +104,14 @@ export default function App() {
   const [showTour, setShowTour] = useState(false);
 
   const flash = (m) => { setToast(m); clearTimeout(flash._t); flash._t = setTimeout(() => setToast(""), 2800); };
+
+  // Relay toasts raised from any view through the module-level bus.
+  useEffect(() => {
+    if (!toastBus) return;
+    const h = (e) => flash(e.detail);
+    toastBus.addEventListener("spiewnik-toast", h);
+    return () => toastBus.removeEventListener("spiewnik-toast", h);
+  }, []);
 
   // First-run welcome tour (once per device).
   useEffect(() => {
@@ -635,6 +654,7 @@ function AddSong({ onBack, onCreate }) {
         method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
         body: JSON.stringify({ query, language }),
       });
+      if (aiCapHit(r, t)) { setResults([]); return; }
       const j = await r.json();
       setResults(Array.isArray(j.results) ? j.results : []);
       setAiMode(true);
@@ -673,6 +693,7 @@ function AddSong({ onBack, onCreate }) {
           method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
           body: JSON.stringify({ audio: b64, mime: mime || "audio/webm", language: langOf(language).bcp.slice(0, 2) }),
         });
+        if (aiCapHit(r, t)) return;
         const j = await r.json();
         const txt = (j.text || "").trim();
         if (txt) setQ(txt);                            // live search fires on the new query
@@ -1024,6 +1045,7 @@ function Reader({ song, targetLang, onBack, onEdit, onPractice, onFoundMedia }) 
         method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
         body: JSON.stringify({ lines: pl.map((l) => l.trim()), language: song.language }),
       });
+      if (aiCapHit(r, t)) return;
       const j = await r.json();
       if (Array.isArray(j.emoji)) setEmoji(j.emoji);
     } catch {} finally { setEmojiBusy(false); }
@@ -1269,6 +1291,7 @@ function Practice({ song, onBack }) {
           method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
           body: JSON.stringify({ audio: b64, mime: mime || "audio/webm", language: lang2 }),
         });
+        if (aiCapHit(r, tr)) return;
         const j = await r.json();
         const t = (j.text || "").trim();
         if (t) { setHeard(t); setScore(grade(line.pl, t)); }
@@ -1478,6 +1501,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
         method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
         body: JSON.stringify({ text: pl, language }),
       });
+      if (aiCapHit(r, t)) return;
       const j = await r.json();
       if (j && typeof j.text === "string" && j.text.trim()) setPl(normLines(j.text));
       else flash(t("tidyFailed"));
@@ -1504,6 +1528,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
         method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
         body: JSON.stringify({ url, language }),
       });
+      if (aiCapHit(r, t)) return;
       const j = await r.json();
       if (j && typeof j.text === "string" && j.text.trim()) { applyLyrics(j.text, true); setShowLink(false); setLinkUrl(""); flash(t("tLyricsFound")); }
       else flash(j && j.error ? j.error : t("extractFailed"));
@@ -1533,6 +1558,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
           method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
           body: JSON.stringify({ artist, title, language }),
         });
+        if (aiCapHit(r2, t)) return;
         const j2 = await r2.json().catch(() => ({}));
         if (j2 && j2.text && j2.text.trim()) {
           applyLyrics(j2.text);

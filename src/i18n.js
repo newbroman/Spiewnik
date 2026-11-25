@@ -97,6 +97,7 @@ const EN = {
   fromLink: "🔗 From a link", linkPh: "Paste the lyrics page link", getLyrics: "Get lyrics", extracting: "Fetching…",
   gotLink: "Getting the lyrics from that link…",
   extractFailed: "Couldn’t get lyrics from that link — the page may block it. Try another source or paste the text.",
+  aiLimit: "You’ve reached this month’s limit for the smart features. They’ll reset at the start of next month.",
   autoOrType: "auto or type", autoTranslate: "⟳ Auto-translate", translating: "Translating…",
   translatePrompt: "Tap “⟳ Auto-translate” below to fill in the meaning →",
   translateHint: "Auto-translate goes line-for-line, so the columns stay aligned. Machine translation is a rough first draft — fixing it by hand is where the learning is.",
