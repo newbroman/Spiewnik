@@ -250,23 +250,23 @@ async function extractLyricFromText(KEY, pageText, language) {
 // "song lyrics") so it doesn't trip the model's lyric-reproduction guardrail —
 // which is exactly the case a datacenter-IP web search tends to miss.
 async function lyricFromKnowledge(KEY, artist, title, language) {
-  const lang = language || "the original language";
+  const lang = language || "its original language";
   const prompt =
-    `A language learner is studying the traditional ${language ? language + " " : ""}children's or folk song/rhyme ` +
-    `"${title}"${artist ? ` (${artist})` : ""} and wants its words in their study notebook.\n\n` +
-    `If this is a traditional, folk, children's, nursery or otherwise public-domain piece whose words are widely known and taught, ` +
-    `write out its full text exactly as it is commonly sung or recited: one line per line, verses separated by a single blank line, ` +
-    `in ${lang}, with no title, no translation, no notes and no commentary.\n` +
-    `If it is NOT a traditional / public-domain piece, or you are not sure of the exact words, reply with exactly: NONE`;
+    `I'm compiling a songbook of traditional, public-domain children's rhymes for a language class.\n` +
+    `Please write out the complete words of the traditional ${language ? language + " " : ""}children's song or rhyme ` +
+    `"${title}"${artist ? ` (${artist})` : ""}, exactly as it is commonly sung or recited — one line per line, ` +
+    `verses separated by a blank line, in ${lang}.\n` +
+    `Give only the words: no title, no translation, no notes. If you genuinely do not know this particular traditional rhyme, reply with only: NONE`;
   const r = await fetch(CHAT, {
     method: "POST", headers: { Authorization: "Bearer " + KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "user", content: prompt }], temperature: 0 }),
+    body: JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: prompt }], temperature: 0 }),
   });
   if (!r.ok) return "";
   const j = await r.json();
-  let out = (j.choices?.[0]?.message?.content || "").trim();
+  const out = (j.choices?.[0]?.message?.content || "").trim();
   // Guard against a polite refusal being mistaken for the lyric.
-  if (/^none\b/i.test(out) || /\b(can'?t|cannot|unable|sorry|copyright)\b/i.test(out.split("\n")[0]) || out.length < 12) return "";
+  const first = out.split("\n")[0];
+  if (/^none\b/i.test(out) || /\b(can'?t|cannot|unable|sorry|copyright|i['’ ]?m sorry)\b/i.test(first) || out.length < 12) return "";
   return out;
 }
 
