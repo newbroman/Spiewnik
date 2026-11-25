@@ -2,9 +2,14 @@
 //  Find lyrics automatically — Vercel serverless function (/api/findlyrics)
 //
 //  The user taps one button; if the quick lyric DB misses, this searches the
-//  web for a lyrics page (DuckDuckGo HTML, no key), fetches the best candidate
-//  page, and has OpenAI extract ONLY the lyric — so there's no "find the page,
-//  copy its URL, paste it back" dance. Returns the lyric and the source URL.
+//  web for a lyrics page and has OpenAI extract ONLY the lyric — so there's no
+//  "find the page, copy its URL, paste it back" dance.
+//
+//  Robustness: it fires SEVERAL query variants in parallel (artist+title,
+//  title-only, and searches aimed at well-known lyric sites), merges and ranks
+//  the result links, fetches the best candidates in parallel, then extracts
+//  from each in turn until one yields a real lyric. Falls back to DuckDuckGo
+//  lite if the HTML endpoint returns nothing.
 //
 //  GET  /api/findlyrics                              -> { configured }
 //  POST /api/findlyrics  { artist, title, language } -> { text, source }
@@ -30,23 +35,28 @@ function htmlToText(html) {
     .replace(/[ \t]+/g, " ").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-// Pull the real result URLs out of a DuckDuckGo HTML results page.
-function ddgLinks(html) {
+// Pull result URLs out of a DuckDuckGo results page (html OR lite).
+// Tolerant: takes uddg-wrapped links first, then any direct external https link.
+function resultLinks(html, engineHost) {
   const out = [];
-  const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"/gi;
-  let m;
-  while ((m = re.exec(html)) && out.length < 15) {
-    let href = m[1];
-    const um = href.match(/[?&]uddg=([^&]+)/);
-    if (um) { try { href = decodeURIComponent(um[1]); } catch {} }
+  const push = (href) => {
+    if (!href) return;
     if (href.startsWith("//")) href = "https:" + href;
-    if (/^https?:\/\//.test(href)) out.push(href);
-  }
+    if (!/^https?:\/\//.test(href)) return;
+    try { if (new URL(href).host.includes(engineHost)) return; } catch { return; }
+    out.push(href);
+  };
+  // 1. DDG html wraps external links as /l/?uddg=<encoded>
+  let m; const uddg = /[?&]uddg=([^&"']+)/gi;
+  while ((m = uddg.exec(html)) && out.length < 40) { try { push(decodeURIComponent(m[1])); } catch {} }
+  // 2. Direct https hrefs (DDG lite, and any unwrapped links)
+  const href = /href="(https?:\/\/[^"]+)"/gi;
+  while ((m = href.exec(html)) && out.length < 60) push(m[1]);
   return out;
 }
 
-const SKIP = /(youtube\.com|youtu\.be|spotify\.com|apple\.com|deezer\.com|wikipedia\.org|facebook\.com|instagram\.com|tiktok\.com|twitter\.com|x\.com|pinterest\.|amazon\.|discogs\.com|last\.fm|genius\.com\/a)/i;
-const PREFER = /(tekst|lyric|piosenk|song|slowa|teksciory|tekstowo|groove|musixmatch|azlyrics|lyricstranslate)/i;
+const SKIP = /(youtube\.com|youtu\.be|spotify\.com|apple\.com|deezer\.com|wikipedia\.org|facebook\.com|instagram\.com|tiktok\.com|twitter\.com|x\.com|pinterest\.|amazon\.|discogs\.com|last\.fm|duckduckgo\.com|google\.|bing\.com|youtube-nocookie)/i;
+const PREFER = /(tekst|lyric|piosenk|slowa|słowa|song|teksciory|tekstowo|groove|musixmatch|azlyrics|lyricstranslate|genius)/i;
 
 async function fetchText(url, ms) {
   const ctrl = new AbortController();
@@ -56,6 +66,17 @@ async function fetchText(url, ms) {
     if (!r.ok) return "";
     return await r.text();
   } catch { return ""; } finally { clearTimeout(to); }
+}
+
+// One search: DDG html, falling back to DDG lite if html yields nothing.
+async function search(q) {
+  const html = await fetchText("https://html.duckduckgo.com/html/?q=" + encodeURIComponent(q), 7000);
+  let links = resultLinks(html, "duckduckgo");
+  if (!links.length) {
+    const lite = await fetchText("https://lite.duckduckgo.com/lite/?q=" + encodeURIComponent(q), 7000);
+    links = resultLinks(lite, "duckduckgo");
+  }
+  return links;
 }
 
 async function extractLyric(KEY, pageText, language) {
@@ -73,6 +94,25 @@ async function extractLyric(KEY, pageText, language) {
   const j = await r.json();
   const out = (j.choices?.[0]?.message?.content || "").trim();
   return /^none\b/i.test(out) || out.length < 12 ? "" : out;
+}
+
+// Build a handful of query variants for one song.
+function buildQueries(artist, title, language) {
+  const pl = /polish|polski/i.test(language);
+  const word = pl ? "tekst" : "lyrics";
+  const qs = [];
+  if (artist) qs.push(`${artist} ${title} ${word}`);
+  qs.push(`${title} ${word}`);
+  if (pl) {
+    qs.push(`${title} tekst piosenki`);
+    qs.push(`${title} site:tekstowo.pl`);
+    qs.push(`${title} site:teksciory.interia.pl`);
+  } else {
+    if (artist) qs.push(`${artist} ${title} lyrics`);
+    qs.push(`${title} site:genius.com`);
+  }
+  // De-dupe, cap.
+  return [...new Set(qs)].slice(0, 5);
 }
 
 export default async function handler(req, res) {
@@ -96,25 +136,36 @@ export default async function handler(req, res) {
   const language = ((req.body && req.body.language) || "").toString().trim();
   if (!title) return res.status(200).json({ text: "" });
 
-  const word = /polish/i.test(language) ? "tekst" : "lyrics";
-  const q = [artist, title, word].filter(Boolean).join(" ");
+  const deadline = Date.now() + 26000; // stay under the 30s function cap
 
   try {
-    const sHtml = await fetchText("https://html.duckduckgo.com/html/?q=" + encodeURIComponent(q), 8000);
-    let links = ddgLinks(sHtml).filter((u) => !SKIP.test(u));
-    // Prefer obvious lyric pages, keep order otherwise; de-dupe by host+path.
+    // 1. Fire all query variants in parallel and merge their result links.
+    const queries = buildQueries(artist, title, language);
+    const linkLists = await Promise.all(queries.map((q) => search(q)));
+    let links = [];
+    for (const list of linkLists) links.push(...list);
+    links = links.filter((u) => !SKIP.test(u));
+
+    // De-dupe by host+path, then rank obvious lyric pages first.
     const seen = new Set();
     links = links.filter((u) => { const k = u.split(/[?#]/)[0]; if (seen.has(k)) return false; seen.add(k); return true; });
     links.sort((a, b) => (PREFER.test(b) ? 1 : 0) - (PREFER.test(a) ? 1 : 0));
-    const candidates = links.slice(0, 3);
+    const candidates = links.slice(0, 6);
+    if (!candidates.length) return res.status(200).json({ text: "" });
 
-    for (const url of candidates) {
-      const html = await fetchText(url, 8000);
-      if (!html) continue;
-      const text = htmlToText(html);
-      if (text.length < 40) continue;
-      const lyric = await extractLyric(KEY, text, language);
-      if (lyric) return res.status(200).json({ text: lyric, source: url });
+    // 2. Fetch the candidate pages in parallel (fast), keep ones with real text.
+    const pages = await Promise.all(candidates.map(async (url) => {
+      const html = await fetchText(url, 7000);
+      const text = html ? htmlToText(html) : "";
+      return { url, text };
+    }));
+
+    // 3. Extract from each in turn (cheap AI call) until one yields a lyric.
+    for (const p of pages) {
+      if (Date.now() > deadline) break;
+      if (!p.text || p.text.length < 40) continue;
+      const lyric = await extractLyric(KEY, p.text, language);
+      if (lyric) return res.status(200).json({ text: lyric, source: p.url });
     }
     return res.status(200).json({ text: "" });
   } catch (e) {

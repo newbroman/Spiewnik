@@ -1642,10 +1642,13 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
         <div className="cols">
           <div>
             <label>{language} <span className="opt">{t("pasteWhole")}</span></label>
-            <textarea value={pl} onChange={(e) => setPl(normLines(e.target.value))} onPaste={onPasteLyrics} placeholder={fetching ? t("fetching") : t("pasteWhole")} />
+            <textarea value={pl} onChange={(e) => setPl(normLines(e.target.value))} onPaste={onPasteLyrics} placeholder={fetching ? t("fetching") : t("lyricBoxPh")} />
             <div className="lyrrow">
-              <a className="findbtn" href={findUrl} target="_blank" rel="noreferrer">{t("findGoogle")}</a>
               <button className="fetch" onClick={() => fetchLyrics(false)} disabled={fetching}>{fetching ? (fetchStage || t("fetching")) : t("getLyricsBtn")}</button>
+              {aiOk && (
+                <button className="fetch" onClick={() => setShowLink((v) => !v)}>{t("fromLink")}</button>
+              )}
+              <a className="findbtn" href={findUrl} target="_blank" rel="noreferrer">{t("findGoogle")}</a>
               {aiOk && pl.trim() && (
                 <button className="fetch" onClick={tidyLyrics} disabled={tidyBusy}>{tidyBusy ? t("tidyBusy") : t("fixLines")}</button>
               )}
