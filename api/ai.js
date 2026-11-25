@@ -108,10 +108,11 @@ async function opIllustrate(KEY, body) {
   if (!lines.length) return { emoji: [] };
   const prompt =
     `Below are the lines of a song${language ? ` in ${language}` : ""}, as a JSON array.` +
-    ` For EACH line, give 1–2 emoji that capture its core feeling or image — a visual memory anchor for a language learner, NOT a literal word-for-word translation.` +
-    ` Use conventional emoji metaphors for abstract lines (love ❤️, longing 💭, time ⏳, goodbye 👋).` +
+    ` For EACH line, give a short EMOJI PHRASE — usually 2 to 4 emoji in sequence — that depicts the line's meaning or little scene, like telling that line's story in pictures.` +
+    ` It's a visual memory anchor for a language learner: picture the concrete things and actions in the line, and for abstract ideas lean on conventional emoji metaphors (love ❤️, longing 🥺💭, time passing ⏳, saying goodbye 👋😢).` +
+    ` Keep each phrase to a handful of emoji — enough to convey the line, not an exhaustive word-for-word translation.` +
     ` Return ONLY JSON of the form {"emoji":[ ... ]} with EXACTLY one string per input line, in the same order.` +
-    ` Use an empty string "" for a blank line, a purely functional line, or one with no fitting emoji.\n\n` +
+    ` Use an empty string "" for a blank line or a purely functional line.\n\n` +
     JSON.stringify(lines);
   const j = await chat(KEY, { model: "gpt-4o-mini", messages: [{ role: "user", content: prompt }], response_format: { type: "json_object" }, temperature: 0.5 }, "Illustration");
   let arr = [];
