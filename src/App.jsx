@@ -58,6 +58,11 @@ const PROVIDER_KEY = "spiewnik.provider.v1";
 
 const norm = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 const esc = (s) => s || "";
+// Split on every line-break variant, not just \n — pasted text (phones, PDFs,
+// some sites) often uses \r, \r\n or the Unicode line/paragraph separators.
+const SPLIT_RE = /\r\n|\r|\n| | /;
+// Normalise any of those to \n so stored lyrics always split cleanly later.
+const normLines = (s) => (s || "").replace(/\r\n|\r| | /g, "\n");
 
 // The original owner — the only account the one-time Daria import is offered to.
 
@@ -432,7 +437,7 @@ function ListView({ songs, loading, email, onOpen, onDelete, onAdd, onSettings, 
           <span className="num">{i + 1}</span>
           <span className="meta">
             <h3>{s.title || t("untitled")}</h3>
-            <p>{filled ? t("lines", { n: s.pl.split("\n").filter((l) => l.trim()).length }) : t("noLyricsYet")}</p>
+            <p>{filled ? t("lines", { n: s.pl.split(SPLIT_RE).filter((l) => l.trim()).length }) : t("noLyricsYet")}</p>
           </span>
           <span className={"dot " + (filled ? "full" : "empty")} />
         </button>
@@ -460,7 +465,7 @@ function ListView({ songs, loading, email, onOpen, onDelete, onAdd, onSettings, 
     ? songs
         .map((s) => {
           let snip = "";
-          for (const l of (s.pl || "").split("\n").concat((s.en || "").split("\n"))) {
+          for (const l of (s.pl || "").split(SPLIT_RE).concat((s.en || "").split(SPLIT_RE))) {
             if (norm(l).includes(nq)) { snip = l.trim(); break; }
           }
           const metaHit =
@@ -950,8 +955,8 @@ function Feedback({ email, onBack, onSent }) {
 // ---- Reader (side-by-side + player + auto-scroll) ---------------------------
 function Reader({ song, targetLang, onBack, onEdit, onPractice, onFoundMedia }) {
   const t = useT();
-  const pl = (song.pl || "").split("\n");
-  const en = (song.en || "").split("\n");
+  const pl = (song.pl || "").split(SPLIT_RE);
+  const en = (song.en || "").split(SPLIT_RE);
   const n = Math.max(pl.length, en.length);
   const has = song.pl && song.pl.trim();
   const [yt, setYt] = useState(song.youtubeId ?? undefined);
@@ -1157,8 +1162,8 @@ function Practice({ song, onBack }) {
   const bcp = langOf(song.language).bcp;
   const lang2 = (bcp || "pl").slice(0, 2);
   const lines = React.useMemo(() => {
-    const pl = (song.pl || "").split("\n");
-    const en = (song.en || "").split("\n");
+    const pl = (song.pl || "").split(SPLIT_RE);
+    const en = (song.en || "").split(SPLIT_RE);
     return pl.map((s, i) => ({ pl: s.trim(), en: (en[i] || "").trim() })).filter((l) => l.pl);
   }, [song.id]);
   const [idx, setIdx] = useState(0);
@@ -1448,7 +1453,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
   useEffect(() => { if (!(song.pl || "").trim()) fetchLyrics(true); /* eslint-disable-next-line */ }, []);
 
   async function autoTranslate() {
-    const lyrics = pl.split("\n");
+    const lyrics = pl.split(SPLIT_RE);
     if (!pl.trim()) { flash(t("tPasteFirst")); return; }
     setBusy(true);
     try {
@@ -1509,7 +1514,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
         <div className="cols">
           <div>
             <label>{language} <span className="opt">{t("pasteWhole")}</span></label>
-            <textarea value={pl} onChange={(e) => setPl(e.target.value)} placeholder={fetching ? t("fetching") : t("pasteWhole")} />
+            <textarea value={pl} onChange={(e) => setPl(normLines(e.target.value))} placeholder={fetching ? t("fetching") : t("pasteWhole")} />
             <div className="lyrrow">
               <a className="findbtn" href={findUrl} target="_blank" rel="noreferrer">{t("findGoogle")}</a>
               <button className="fetch" onClick={() => fetchLyrics(false)} disabled={fetching}>{fetching ? t("fetching") : t("autoFetch")}</button>
@@ -1518,7 +1523,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
           </div>
           <div>
             <label>{targetLang || "English"} <span className="opt">{t("autoOrType")}</span></label>
-            <textarea className="en" value={en} onChange={(e) => setEn(e.target.value)} placeholder={t("autoOrType")} />
+            <textarea className="en" value={en} onChange={(e) => setEn(normLines(e.target.value))} placeholder={t("autoOrType")} />
             <div className="trrow">
               <button className="tr" onClick={autoTranslate} disabled={busy}>{busy ? t("translating") : t("autoTranslate")}</button>
               <select value={provider} onChange={(e) => setProvider(e.target.value)} aria-label="Translation provider">
