@@ -1484,6 +1484,16 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
     } catch { flash(t("tidyFailed")); } finally { setTidyBusy(false); }
   }
 
+  // Put fetched/extracted lyrics into the box — and, if you have your own key,
+  // translate them straight away so the side-by-side appears without a second tap.
+  const applyLyrics = (text, force) => {
+    if (!force && pl && pl.trim()) return false;   // never clobber lyrics you typed
+    const clean = normLines(text);
+    setPl(clean);
+    if (hasOwnKey && !en.trim()) autoTranslate(clean);
+    return true;
+  };
+
   // Fetch a lyrics-page link and let the AI pull out just the lyric.
   async function extractFromLink(urlArg) {
     const url = (typeof urlArg === "string" ? urlArg : linkUrl).trim();
@@ -1495,7 +1505,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
         body: JSON.stringify({ url, language }),
       });
       const j = await r.json();
-      if (j && typeof j.text === "string" && j.text.trim()) { setPl(normLines(j.text)); setShowLink(false); setLinkUrl(""); flash(t("tLyricsFound")); }
+      if (j && typeof j.text === "string" && j.text.trim()) { applyLyrics(j.text, true); setShowLink(false); setLinkUrl(""); flash(t("tLyricsFound")); }
       else flash(j && j.error ? j.error : t("extractFailed"));
     } catch { flash(t("extractFailed")); } finally { setExtractBusy(false); }
   }
@@ -1510,7 +1520,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
       const r = await fetch(`/api/lyrics?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`, { headers: apiHeaders() });
       const j = await r.json().catch(() => ({}));
       if (r.ok && j.lyrics && j.lyrics.trim()) {
-        setPl((cur) => (cur && cur.trim() ? cur : normLines(j.lyrics.trim()))); // never clobber typed text
+        applyLyrics(j.lyrics.trim());
         if (!auto) flash(t("tLyricsFound"));
         return;
       }
@@ -1525,7 +1535,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
         });
         const j2 = await r2.json().catch(() => ({}));
         if (j2 && j2.text && j2.text.trim()) {
-          setPl((cur) => (cur && cur.trim() ? cur : normLines(j2.text)));
+          applyLyrics(j2.text);
           flash(t("tLyricsFound"));
           return;
         }
@@ -1543,9 +1553,10 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
   // On opening a song that has no lyrics yet, have a go automatically.
   useEffect(() => { if (!(song.pl || "").trim()) fetchLyrics(true); /* eslint-disable-next-line */ }, []);
 
-  async function autoTranslate() {
-    const lyrics = pl.split(SPLIT_RE);
-    if (!pl.trim()) { flash(t("tPasteFirst")); return; }
+  async function autoTranslate(srcArg) {
+    const src = typeof srcArg === "string" ? srcArg : pl;
+    const lyrics = src.split(SPLIT_RE);
+    if (!src.trim()) { flash(t("tPasteFirst")); return; }
     setBusy(true);
     try {
       // Translate the title + album in the SAME call as the lyrics (one request,
@@ -1626,9 +1637,9 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
           </div>
           <div>
             <label>{targetLang || "English"} <span className="opt">{t("autoOrType")}</span></label>
-            <textarea className="en" value={en} onChange={(e) => setEn(normLines(e.target.value))} placeholder={t("autoOrType")} />
+            <textarea className="en" value={en} onChange={(e) => setEn(normLines(e.target.value))} placeholder={pl.trim() && !en.trim() ? t("translatePrompt") : t("autoOrType")} />
             <div className="trrow">
-              <button className="tr" onClick={autoTranslate} disabled={busy}>{busy ? t("translating") : t("autoTranslate")}</button>
+              <button className={"tr" + (pl.trim() && !en.trim() && !busy ? " cta" : "")} onClick={autoTranslate} disabled={busy}>{busy ? t("translating") : t("autoTranslate")}</button>
               <select value={provider} onChange={(e) => setProvider(e.target.value)} aria-label="Translation provider">
                 <option value="deepl">DeepL</option>
                 <option value="google">Google</option>
@@ -1820,6 +1831,9 @@ const CSS = `
 .trrow{ display:flex; gap:8px; margin-top:8px; }
 .trrow .tr{ flex:1; background:var(--night-3); border:1px solid var(--line); color:#eef1f6; border-radius:10px; padding:10px; font-family:var(--ui); font-size:13px; font-weight:500; cursor:pointer; }
 .trrow .tr:disabled{ opacity:.55; cursor:default; }
+.trrow .tr.cta{ background:var(--rose); border-color:var(--rose); color:#20140f; font-weight:700; animation:trpulse 1.8s ease-in-out infinite; }
+@keyframes trpulse{ 0%,100%{ box-shadow:0 0 0 0 rgba(214,124,112,.45); } 50%{ box-shadow:0 0 0 6px rgba(214,124,112,0); } }
+@media (prefers-reduced-motion: reduce){ .trrow .tr.cta{ animation:none; } }
 .trrow select{ background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:10px; padding:0 10px; font-family:var(--ui); font-size:13px; outline:0; }
 .editor .meta3{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px; }
 .addform{ display:flex; flex-direction:column; gap:14px; margin-bottom:6px; }

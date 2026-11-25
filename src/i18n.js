@@ -98,6 +98,7 @@ const EN = {
   gotLink: "Getting the lyrics from that link…",
   extractFailed: "Couldn’t get lyrics from that link — the page may block it. Try another source or paste the text.",
   autoOrType: "auto or type", autoTranslate: "⟳ Auto-translate", translating: "Translating…",
+  translatePrompt: "Tap “⟳ Auto-translate” below to fill in the meaning →",
   translateHint: "Auto-translate goes line-for-line, so the columns stay aligned. Machine translation is a rough first draft — fixing it by hand is where the learning is.",
   removeSong: "Remove this song",
   trialTitle: "Free translations used up",
