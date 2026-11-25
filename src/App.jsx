@@ -523,6 +523,9 @@ function ListView({ songs, loading, email, onOpen, onDelete, onAdd, onSettings, 
       </div>
       <div className="body">
         {!loading && songs.length > 0 && (
+          <div className="addtop"><button className="add" onClick={onAdd}>{t("addSongPlus")}</button></div>
+        )}
+        {!loading && songs.length > 0 && (
           <div className="libsearch">
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("searchLibraryPh")} />
             {query && <button className="libsearchx" onClick={() => setQuery("")} aria-label={t("keep")}>✕</button>}
@@ -591,7 +594,6 @@ function ListView({ songs, loading, email, onOpen, onDelete, onAdd, onSettings, 
             </div>
           ))
         )}
-        <div className="addrow"><button className="add" onClick={onAdd}>{t("addSongPlus")}</button></div>
       </div>
     </>
   );
@@ -613,6 +615,7 @@ function AddSong({ onBack, onCreate }) {
   const [voiceRec, setVoiceRec] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMode, setAiMode] = useState(false);    // current results came from AI
+  const [aiQuery, setAiQuery] = useState("");     // the theme behind the current AI results
   const [openai, setOpenai] = useState(false);     // OPENAI key present → voice + AI offered
   const vMediaRef = useRef(null), vStreamRef = useRef(null), vChunksRef = useRef([]);
 
@@ -641,14 +644,13 @@ function AddSong({ onBack, onCreate }) {
     } catch { if (my === seqRef.current) setResults([]); }
     finally { if (my === seqRef.current) setBusy(false); }
   }
-  function doSearch() { const query = q.trim(); if (query) runSearch(query); }
-
   // AI suggestions — turn a theme / vague request into a list of real songs.
-  async function askAI() {
-    const query = q.trim();
+  // This is the primary "search": it returns real, existing songs that fit.
+  async function askAI(queryArg) {
+    const query = (typeof queryArg === "string" ? queryArg : q).trim();
     if (aiBusy || !query) return;
     seqRef.current++;                                  // cancel any pending live search
-    setAiBusy(true); setSearched(true);
+    setAiBusy(true); setSearched(true); setAiQuery(query);
     try {
       const r = await fetch("/api/ai?op=suggest", {
         method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
@@ -696,26 +698,33 @@ function AddSong({ onBack, onCreate }) {
         if (aiCapHit(r, t)) return;
         const j = await r.json();
         const txt = (j.text || "").trim();
-        if (txt) setQ(txt);                            // live search fires on the new query
+        if (txt) { setQ(txt); primarySearch(txt); }    // run the search on the spoken query
       } catch {} finally { setBusy(false); }
     };
     mr.start(); setVoiceRec(true);
     setTimeout(() => { try { if (mr.state !== "inactive") mr.stop(); } catch {} }, 6000); // short query cap
   }
 
-  // Live search: fetch a list automatically as you type (debounced). A half-typed
-  // link is left for Enter / the button so we don't resolve it prematurely.
-  useEffect(() => {
-    const query = q.trim();
-    if (query.length < 2) { seqRef.current++; setResults([]); setSearched(false); return; }
-    if (/^https?:\/\//i.test(query)) return;
-    const id = setTimeout(() => runSearch(query), 450);
-    return () => clearTimeout(id);
-  }, [q]);
+  // The main search action. A pasted Spotify/YouTube link resolves to that exact
+  // track; anything else goes to the AI, which returns real songs that fit the
+  // request (a title, an artist, or a theme like "Polish nursery rhymes"). The
+  // catalogue search is only a fallback for when the AI key isn't configured.
+  function primarySearch(queryArg) {
+    const query = (typeof queryArg === "string" ? queryArg : q).trim();
+    if (!query) return;
+    const isLink = /^https?:\/\/\S+$/i.test(query) && /(spotify\.com|youtu\.be|youtube\.com)/i.test(query);
+    if (isLink) return runSearch(query);
+    if (openai) return askAI(query);
+    return runSearch(query);
+  }
   async function pick(res) {
     if (creating) return;
     setCreating(true);
-    await onCreate({ language, artist: res.artist, album: res.album || "", title: res.title });
+    // AI-suggested songs carry no album. Rather than scattering a one-off album
+    // per song, group them under the theme you searched (e.g. "Polish nursery
+    // rhymes") so they sit together in your library.
+    const album = (res.album || "").trim() || (aiMode ? aiQuery.trim() : "");
+    await onCreate({ language, artist: res.artist, album, title: res.title });
   }
   async function createManual() {
     if (!title.trim() || creating) return;
@@ -744,18 +753,17 @@ function AddSong({ onBack, onCreate }) {
             <label className="searchlabel">{t("searchHdr")}</label>
             <div className="searchrow">
               <input value={q} autoFocus placeholder={t("searchPh")}
-                onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doSearch()} />
+                onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && primarySearch()} />
               {openai && (
                 <button className={"micbtn" + (voiceRec ? " on" : "")} onClick={toggleVoice} aria-label={t("voiceSearch")} title={t("voiceSearch")}>
                   {voiceRec ? "⏹" : "🎤"}
                 </button>
               )}
-              <button className="searchbtn" onClick={doSearch} disabled={busy || !q.trim()}>{busy ? "…" : t("search")}</button>
+              <button className="searchbtn" onClick={() => primarySearch()} disabled={busy || aiBusy || !q.trim()}>
+                {busy || aiBusy ? "…" : (openai ? t("aiSearchBtn") : t("search"))}
+              </button>
             </div>
-            <p className="searchtip">{t("linkTip")}</p>
-            {openai && q.trim() && (
-              <button className="aibtn" onClick={askAI} disabled={aiBusy}>{aiBusy ? t("aiBusy") : t("aiSuggest")}</button>
-            )}
+            <p className="searchtip">{openai ? t("aiSearchTip") : t("linkTip")}</p>
 
             <div className="results">
               {aiMode && results.length > 0 && <p className="ailabel">{t("aiLabel")}</p>}
@@ -1820,6 +1828,7 @@ const CSS = `
 .song .meta p{ margin:2px 0 0; font-size:12px; color:var(--mist-dim); }
 .dot{ width:9px; height:9px; border-radius:50%; flex:none; } .dot.full{ background:var(--rose); } .dot.empty{ background:none; border:1.5px solid var(--night-3); }
 .addrow{ margin-top:14px; } .add{ width:100%; background:none; border:1.5px dashed var(--night-3); color:var(--rose); border-radius:14px; padding:13px; font-family:var(--ui); font-size:14px; cursor:pointer; } .add:hover{ border-color:var(--rose); }
+.addtop{ margin:0 0 16px; } .addtop .add{ background:var(--rose); border:1px solid var(--rose); color:#20140f; font-weight:600; }
 .rbar{ display:flex; align-items:center; gap:10px; padding:16px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--night); z-index:3; }
 .icbtn{ background:var(--night-2); border:1px solid var(--line); color:var(--mist); border-radius:10px; height:38px; min-width:38px; padding:0 12px; cursor:pointer; font-size:14px; font-family:var(--ui); line-height:1; }
 .icbtn.accent{ background:var(--rose); border-color:var(--rose); color:#20140f; font-weight:600; }
