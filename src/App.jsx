@@ -1504,10 +1504,11 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
         setPl((cur) => (cur && cur.trim() ? cur : j.lyrics.trim())); // never clobber typed text
         if (!auto) flash(t("tLyricsFound"));
       } else if (!auto) {
-        flash(t("tLyricsNone"));
+        // Auto-fetch found nothing → fall back to pasting the page link.
+        if (aiOk) { setShowLink(true); flash(t("autoFellBack")); } else flash(t("tLyricsNone"));
       }
     } catch (e) {
-      if (!auto) flash("Lyric lookup failed: " + e.message);
+      if (!auto) { if (aiOk) { setShowLink(true); flash(t("autoFellBack")); } else flash("Lyric lookup failed: " + e.message); }
     } finally {
       setFetching(false);
     }
@@ -1580,15 +1581,14 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
             <textarea value={pl} onChange={(e) => setPl(normLines(e.target.value))} onPaste={onPasteLyrics} placeholder={fetching ? t("fetching") : t("pasteWhole")} />
             <div className="lyrrow">
               <a className="findbtn" href={findUrl} target="_blank" rel="noreferrer">{t("findGoogle")}</a>
-              <button className="fetch" onClick={() => fetchLyrics(false)} disabled={fetching}>{fetching ? t("fetching") : t("autoFetch")}</button>
-              {aiOk && <button className="fetch" onClick={() => setShowLink((v) => !v)}>{t("fromLink")}</button>}
+              <button className="fetch" onClick={() => fetchLyrics(false)} disabled={fetching}>{fetching ? t("fetching") : t("getLyricsBtn")}</button>
               {aiOk && pl.trim() && (
                 <button className="fetch" onClick={tidyLyrics} disabled={tidyBusy}>{tidyBusy ? t("tidyBusy") : t("fixLines")}</button>
               )}
             </div>
             {showLink && (
               <div className="linkrow">
-                <input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder={t("linkPh")}
+                <input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder={t("linkPh")} autoFocus
                   onKeyDown={(e) => e.key === "Enter" && extractFromLink()} />
                 <button className="fetch" onClick={extractFromLink} disabled={extractBusy || !linkUrl.trim()}>
                   {extractBusy ? t("extracting") : t("getLyrics")}
