@@ -1549,7 +1549,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
   // Try to pull the original lyric automatically (lyrics.ovh via /api/lyrics).
   // `auto` = called silently on open; otherwise it's the button, which reports.
   async function fetchLyrics(auto) {
-    if (!title.trim() || !artist.trim()) { if (!auto) flash(t("tAddArtistFirst")); return; }
+    if (!title.trim()) { if (!auto) flash(t("tAddTitleFirst")); return; }
     setFetching(true);
     try {
       // 1. Fast exact lookup in the lyric DB.
@@ -1562,27 +1562,25 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
       }
       if (auto) return; // the silent on-open attempt stops at the quick DB
 
-      // 2. Search the web for a lyrics page, fetch it, and extract — no URL to copy.
-      if (aiOk) {
-        setFetchStage(t("searchingWeb"));
-        const r2 = await fetch("/api/ai?op=findlyrics", {
-          method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
-          body: JSON.stringify({ artist, title, language }),
-        });
-        if (aiCapHit(r2, t)) return;
-        const j2 = await r2.json().catch(() => ({}));
-        if (j2 && j2.text && j2.text.trim()) {
-          applyLyrics(j2.text, true);   // the user asked for it — place it even if the box has text
-          flash(t("tLyricsFound"));
-          return;
-        }
-        // 3. Still nothing → let the user paste a specific page link.
-        setShowLink(true); flash(t("autoFellBack"));
-      } else {
-        flash(t("tLyricsNone"));
+      // 2. Ask the finder: web search + the model's own knowledge. We ALWAYS
+      //    try it — the backend handles a missing key — so a not-yet-resolved
+      //    aiOk flag (or a blank artist) can never silently skip the finder.
+      setFetchStage(t("searchingWeb"));
+      const r2 = await fetch("/api/ai?op=findlyrics", {
+        method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
+        body: JSON.stringify({ artist, title, language }),
+      });
+      if (aiCapHit(r2, t)) return;
+      const j2 = await r2.json().catch(() => ({}));
+      if (j2 && j2.text && j2.text.trim()) {
+        applyLyrics(j2.text, true);   // the user asked for it — place it even if the box has text
+        flash(t("tLyricsFound"));
+        return;
       }
+      // 3. Still nothing → let the user paste a specific page link.
+      setShowLink(true); flash(t("autoFellBack"));
     } catch (e) {
-      if (!auto) { if (aiOk) { setShowLink(true); flash(t("autoFellBack")); } else flash("Lyric lookup failed: " + e.message); }
+      if (!auto) { setShowLink(true); flash(t("autoFellBack")); }
     } finally {
       setFetching(false); setFetchStage("");
     }
