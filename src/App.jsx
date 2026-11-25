@@ -1430,6 +1430,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
   const [en, setEn] = useState(song.en || "");
   const [busy, setBusy] = useState(false);
   const [fetching, setFetching] = useState(false);
+  const [fetchStage, setFetchStage] = useState("");
   const [trialOut, setTrialOut] = useState(false);
   const [keyInput, setKeyInput] = useState("");
   const [savingKey, setSavingKey] = useState(false);
@@ -1497,20 +1498,38 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
     if (!title.trim() || !artist.trim()) { if (!auto) flash(t("tAddArtistFirst")); return; }
     setFetching(true);
     try {
+      // 1. Fast exact lookup in the lyric DB.
       const r = await fetch(`/api/lyrics?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`, { headers: apiHeaders() });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "Lookup failed");
-      if (j.lyrics && j.lyrics.trim()) {
-        setPl((cur) => (cur && cur.trim() ? cur : j.lyrics.trim())); // never clobber typed text
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.lyrics && j.lyrics.trim()) {
+        setPl((cur) => (cur && cur.trim() ? cur : normLines(j.lyrics.trim()))); // never clobber typed text
         if (!auto) flash(t("tLyricsFound"));
-      } else if (!auto) {
-        // Auto-fetch found nothing → fall back to pasting the page link.
-        if (aiOk) { setShowLink(true); flash(t("autoFellBack")); } else flash(t("tLyricsNone"));
+        return;
+      }
+      if (auto) return; // the silent on-open attempt stops at the quick DB
+
+      // 2. Search the web for a lyrics page, fetch it, and extract — no URL to copy.
+      if (aiOk) {
+        setFetchStage(t("searchingWeb"));
+        const r2 = await fetch("/api/findlyrics", {
+          method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
+          body: JSON.stringify({ artist, title, language }),
+        });
+        const j2 = await r2.json().catch(() => ({}));
+        if (j2 && j2.text && j2.text.trim()) {
+          setPl((cur) => (cur && cur.trim() ? cur : normLines(j2.text)));
+          flash(t("tLyricsFound"));
+          return;
+        }
+        // 3. Still nothing → let the user paste a specific page link.
+        setShowLink(true); flash(t("autoFellBack"));
+      } else {
+        flash(t("tLyricsNone"));
       }
     } catch (e) {
       if (!auto) { if (aiOk) { setShowLink(true); flash(t("autoFellBack")); } else flash("Lyric lookup failed: " + e.message); }
     } finally {
-      setFetching(false);
+      setFetching(false); setFetchStage("");
     }
   }
   // On opening a song that has no lyrics yet, have a go automatically.
@@ -1581,7 +1600,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
             <textarea value={pl} onChange={(e) => setPl(normLines(e.target.value))} onPaste={onPasteLyrics} placeholder={fetching ? t("fetching") : t("pasteWhole")} />
             <div className="lyrrow">
               <a className="findbtn" href={findUrl} target="_blank" rel="noreferrer">{t("findGoogle")}</a>
-              <button className="fetch" onClick={() => fetchLyrics(false)} disabled={fetching}>{fetching ? t("fetching") : t("getLyricsBtn")}</button>
+              <button className="fetch" onClick={() => fetchLyrics(false)} disabled={fetching}>{fetching ? (fetchStage || t("fetching")) : t("getLyricsBtn")}</button>
               {aiOk && pl.trim() && (
                 <button className="fetch" onClick={tidyLyrics} disabled={tidyBusy}>{tidyBusy ? t("tidyBusy") : t("fixLines")}</button>
               )}
