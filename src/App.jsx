@@ -63,6 +63,13 @@ const esc = (s) => s || "";
 const SPLIT_RE = new RegExp("\\r\\n|\\r|\\n|\\u2028|\\u2029");
 // Normalise any of those to \n so stored lyrics always split cleanly later.
 const normLines = (s) => (s || "").replace(new RegExp("\\r\\n|\\r|\\u2028|\\u2029", "g"), "\n");
+// Strip the "copied from" footer lyric sites append (teksciory, azlyrics, …).
+const stripFooter = (s) =>
+  (s || "")
+    .replace(/\n?\s*Czytaj więcej na[\s\S]*$/i, "")
+    .replace(/\n?\s*Read more at[\s\S]*$/i, "")
+    .replace(/\s*https?:\/\/\S*utm_source=paste\S*/gi, "")
+    .trim();
 
 // The original owner — the only account the one-time Daria import is offered to.
 
@@ -1427,6 +1434,43 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
   const [keyInput, setKeyInput] = useState("");
   const [savingKey, setSavingKey] = useState(false);
   const [showKeyInput, setShowKeyInput] = useState(false);
+  const [tidyBusy, setTidyBusy] = useState(false);
+  const [aiOk, setAiOk] = useState(false);
+
+  useEffect(() => {
+    let ok = true;
+    fetch("/api/tidy", { headers: apiHeaders() }).then((r) => r.json())
+      .then((j) => { if (ok) setAiOk(!!(j && j.configured)); }).catch(() => {});
+    return () => { ok = false; };
+  }, []);
+
+  // Clean the "copied from" footer and odd line-break chars out of a paste.
+  const onPasteLyrics = (e) => {
+    const cd = e.clipboardData; if (!cd) return;
+    const raw = cd.getData("text"); if (!raw) return;
+    e.preventDefault();
+    const el = e.target;
+    const clean = normLines(stripFooter(raw));
+    const start = el.selectionStart ?? pl.length, end = el.selectionEnd ?? pl.length;
+    const next = pl.slice(0, start) + clean + pl.slice(end);
+    setPl(next);
+    requestAnimationFrame(() => { try { el.selectionStart = el.selectionEnd = start + clean.length; } catch {} });
+  };
+
+  // Rebuild proper lyric lines when a site flattened them into one run of text.
+  async function tidyLyrics() {
+    if (tidyBusy || !pl.trim()) return;
+    setTidyBusy(true);
+    try {
+      const r = await fetch("/api/tidy", {
+        method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
+        body: JSON.stringify({ text: pl, language }),
+      });
+      const j = await r.json();
+      if (j && typeof j.text === "string" && j.text.trim()) setPl(normLines(j.text));
+      else flash(t("tidyFailed"));
+    } catch { flash(t("tidyFailed")); } finally { setTidyBusy(false); }
+  }
 
   // Try to pull the original lyric automatically (lyrics.ovh via /api/lyrics).
   // `auto` = called silently on open; otherwise it's the button, which reports.
@@ -1514,10 +1558,13 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
         <div className="cols">
           <div>
             <label>{language} <span className="opt">{t("pasteWhole")}</span></label>
-            <textarea value={pl} onChange={(e) => setPl(normLines(e.target.value))} placeholder={fetching ? t("fetching") : t("pasteWhole")} />
+            <textarea value={pl} onChange={(e) => setPl(normLines(e.target.value))} onPaste={onPasteLyrics} placeholder={fetching ? t("fetching") : t("pasteWhole")} />
             <div className="lyrrow">
               <a className="findbtn" href={findUrl} target="_blank" rel="noreferrer">{t("findGoogle")}</a>
               <button className="fetch" onClick={() => fetchLyrics(false)} disabled={fetching}>{fetching ? t("fetching") : t("autoFetch")}</button>
+              {aiOk && pl.trim() && (
+                <button className="fetch" onClick={tidyLyrics} disabled={tidyBusy}>{tidyBusy ? t("tidyBusy") : t("fixLines")}</button>
+              )}
             </div>
             <p className="findhint">{t("findHint")}</p>
           </div>
