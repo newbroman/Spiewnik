@@ -1448,10 +1448,18 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
     return () => { ok = false; };
   }, []);
 
-  // Clean the "copied from" footer and odd line-break chars out of a paste.
+  // Clean the "copied from" footer and odd line-break chars out of a paste —
+  // and if what's pasted is just a web link, extract the lyric from that page.
   const onPasteLyrics = (e) => {
     const cd = e.clipboardData; if (!cd) return;
     const raw = cd.getData("text"); if (!raw) return;
+    const trimmed = raw.trim();
+    if (aiOk && /^https?:\/\/\S+$/i.test(trimmed)) {
+      e.preventDefault();
+      flash(t("gotLink"));
+      extractFromLink(trimmed);
+      return;
+    }
     e.preventDefault();
     const el = e.target;
     const clean = normLines(stripFooter(raw));
@@ -1476,9 +1484,9 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
     } catch { flash(t("tidyFailed")); } finally { setTidyBusy(false); }
   }
 
-  // Fetch a pasted lyrics-page link and let the AI pull out just the lyric.
-  async function extractFromLink() {
-    const url = linkUrl.trim();
+  // Fetch a lyrics-page link and let the AI pull out just the lyric.
+  async function extractFromLink(urlArg) {
+    const url = (typeof urlArg === "string" ? urlArg : linkUrl).trim();
     if (extractBusy || !url) return;
     setExtractBusy(true);
     try {
@@ -1487,7 +1495,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
         body: JSON.stringify({ url, language }),
       });
       const j = await r.json();
-      if (j && typeof j.text === "string" && j.text.trim()) { setPl(normLines(j.text)); setShowLink(false); setLinkUrl(""); }
+      if (j && typeof j.text === "string" && j.text.trim()) { setPl(normLines(j.text)); setShowLink(false); setLinkUrl(""); flash(t("tLyricsFound")); }
       else flash(j && j.error ? j.error : t("extractFailed"));
     } catch { flash(t("extractFailed")); } finally { setExtractBusy(false); }
   }

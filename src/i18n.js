@@ -94,6 +94,7 @@ const EN = {
   fixLines: "✨ Fix line breaks", tidyBusy: "Tidying…", tidyFailed: "Couldn’t tidy the lyrics — try again.",
   getLyricsBtn: "⤓ Get lyrics", searchingWeb: "Searching…", autoFellBack: "Couldn’t find it automatically — paste the lyrics page link below.",
   fromLink: "🔗 From a link", linkPh: "Paste the lyrics page link", getLyrics: "Get lyrics", extracting: "Fetching…",
+  gotLink: "Getting the lyrics from that link…",
   extractFailed: "Couldn’t get lyrics from that link — the page may block it. Try another source or paste the text.",
   autoOrType: "auto or type", autoTranslate: "⟳ Auto-translate", translating: "Translating…",
   translateHint: "Auto-translate goes line-for-line, so the columns stay aligned. Machine translation is a rough first draft — fixing it by hand is where the learning is.",
