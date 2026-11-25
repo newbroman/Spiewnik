@@ -60,8 +60,6 @@ link.
 | `api/search.js` | Song search (iTunes Search API) |
 | `api/lyrics.js` | Lyric auto-fetch (lyrics.ovh) |
 | `api/youtube.js` / `api/spotify.js` | Resolve a song to a YouTube video / Spotify track |
-| `api/import-daria.js` | One-time owner-only import from the old single-user store |
-| `api/data.js` | Legacy Upstash KV sync (single-user era; not used by the app now) |
 | `vite.config.js` | Dev server + PWA (manifest, service worker) |
 | `.env.example` | Template for environment variables |
 
