@@ -60,9 +60,9 @@ const norm = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCa
 const esc = (s) => s || "";
 // Split on every line-break variant, not just \n — pasted text (phones, PDFs,
 // some sites) often uses \r, \r\n or the Unicode line/paragraph separators.
-const SPLIT_RE = /\r\n|\r|\n| | /;
+const SPLIT_RE = new RegExp("\\r\\n|\\r|\\n|\\u2028|\\u2029");
 // Normalise any of those to \n so stored lyrics always split cleanly later.
-const normLines = (s) => (s || "").replace(/\r\n|\r| | /g, "\n");
+const normLines = (s) => (s || "").replace(new RegExp("\\r\\n|\\r|\\u2028|\\u2029", "g"), "\n");
 
 // The original owner — the only account the one-time Daria import is offered to.
 
