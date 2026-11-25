@@ -259,7 +259,7 @@ async function lyricFromKnowledge(KEY, artist, title, language) {
     `Give only the words: no title, no translation, no notes. If you genuinely do not know this particular traditional rhyme, reply with only: NONE`;
   const r = await fetch(CHAT, {
     method: "POST", headers: { Authorization: "Bearer " + KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: prompt }], temperature: 0 }),
+    body: JSON.stringify({ model: "gpt-4o-mini", messages: [{ role: "user", content: prompt }], temperature: 0 }),
   });
   if (!r.ok) return "";
   const j = await r.json();

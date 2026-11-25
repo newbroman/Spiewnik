@@ -1556,7 +1556,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
       const r = await fetch(`/api/lyrics?artist=${encodeURIComponent(artist)}&title=${encodeURIComponent(title)}`, { headers: apiHeaders() });
       const j = await r.json().catch(() => ({}));
       if (r.ok && j.lyrics && j.lyrics.trim()) {
-        applyLyrics(j.lyrics.trim());
+        applyLyrics(j.lyrics.trim(), !auto);   // an explicit fetch always applies
         if (!auto) flash(t("tLyricsFound"));
         return;
       }
@@ -1572,7 +1572,7 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
         if (aiCapHit(r2, t)) return;
         const j2 = await r2.json().catch(() => ({}));
         if (j2 && j2.text && j2.text.trim()) {
-          applyLyrics(j2.text);
+          applyLyrics(j2.text, true);   // the user asked for it — place it even if the box has text
           flash(t("tLyricsFound"));
           return;
         }
