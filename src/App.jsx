@@ -1436,6 +1436,9 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
   const [showKeyInput, setShowKeyInput] = useState(false);
   const [tidyBusy, setTidyBusy] = useState(false);
   const [aiOk, setAiOk] = useState(false);
+  const [showLink, setShowLink] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("");
+  const [extractBusy, setExtractBusy] = useState(false);
 
   useEffect(() => {
     let ok = true;
@@ -1470,6 +1473,22 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
       if (j && typeof j.text === "string" && j.text.trim()) setPl(normLines(j.text));
       else flash(t("tidyFailed"));
     } catch { flash(t("tidyFailed")); } finally { setTidyBusy(false); }
+  }
+
+  // Fetch a pasted lyrics-page link and let the AI pull out just the lyric.
+  async function extractFromLink() {
+    const url = linkUrl.trim();
+    if (extractBusy || !url) return;
+    setExtractBusy(true);
+    try {
+      const r = await fetch("/api/extract", {
+        method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
+        body: JSON.stringify({ url, language }),
+      });
+      const j = await r.json();
+      if (j && typeof j.text === "string" && j.text.trim()) { setPl(normLines(j.text)); setShowLink(false); setLinkUrl(""); }
+      else flash(j && j.error ? j.error : t("extractFailed"));
+    } catch { flash(t("extractFailed")); } finally { setExtractBusy(false); }
   }
 
   // Try to pull the original lyric automatically (lyrics.ovh via /api/lyrics).
@@ -1562,10 +1581,20 @@ function Editor({ song, provider, setProvider, hasOwnKey, onSaveKey, targetLang,
             <div className="lyrrow">
               <a className="findbtn" href={findUrl} target="_blank" rel="noreferrer">{t("findGoogle")}</a>
               <button className="fetch" onClick={() => fetchLyrics(false)} disabled={fetching}>{fetching ? t("fetching") : t("autoFetch")}</button>
+              {aiOk && <button className="fetch" onClick={() => setShowLink((v) => !v)}>{t("fromLink")}</button>}
               {aiOk && pl.trim() && (
                 <button className="fetch" onClick={tidyLyrics} disabled={tidyBusy}>{tidyBusy ? t("tidyBusy") : t("fixLines")}</button>
               )}
             </div>
+            {showLink && (
+              <div className="linkrow">
+                <input value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} placeholder={t("linkPh")}
+                  onKeyDown={(e) => e.key === "Enter" && extractFromLink()} />
+                <button className="fetch" onClick={extractFromLink} disabled={extractBusy || !linkUrl.trim()}>
+                  {extractBusy ? t("extracting") : t("getLyrics")}
+                </button>
+              </div>
+            )}
             <p className="findhint">{t("findHint")}</p>
           </div>
           <div>
@@ -1754,6 +1783,9 @@ const CSS = `
 .editor .opt{ text-transform:none; letter-spacing:0; font-weight:400; color:var(--mist-dim); margin-left:6px; }
 .editor textarea{ width:100%; min-height:300px; background:var(--night-2); border:1px solid var(--line); border-radius:12px; padding:12px 13px; color:#eef1f6; font-size:14px; line-height:1.55; outline:0; resize:vertical; font-family:var(--serif); }
 .editor textarea.en{ font-family:var(--ui); } .editor textarea:focus{ border-color:var(--rose); }
+.linkrow{ display:flex; gap:8px; margin-top:8px; }
+.linkrow input{ flex:1; min-width:0; background:var(--night-2); border:1px solid var(--line); border-radius:11px; padding:10px 12px; color:#eef1f6; font-family:var(--ui); font-size:13.5px; outline:0; }
+.linkrow input:focus{ border-color:var(--rose); }
 .lyrrow{ display:flex; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap; }
 .editor .findbtn{ background:var(--rose); color:#20140f; border:0; border-radius:10px; padding:10px 16px; font-family:var(--ui); font-size:13px; font-weight:600; cursor:pointer; text-decoration:none; display:inline-block; }
 .editor .fetch{ background:var(--night-3); border:1px solid var(--line); color:#eef1f6; border-radius:10px; padding:10px 14px; font-family:var(--ui); font-size:13px; font-weight:500; cursor:pointer; } .editor .fetch:disabled{ opacity:.55; cursor:default; }

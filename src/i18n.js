@@ -92,6 +92,8 @@ const EN = {
   findGoogle: "🔍 Find lyrics on Google ↗", autoFetch: "⤓ Auto-fetch", fetching: "Fetching…",
   findHint: "Opens a search for this song — copy the lyric from the results and paste it above. If the lines run together, tap “Fix line breaks”.",
   fixLines: "✨ Fix line breaks", tidyBusy: "Tidying…", tidyFailed: "Couldn’t tidy the lyrics — try again.",
+  fromLink: "🔗 From a link", linkPh: "Paste the lyrics page link", getLyrics: "Get lyrics", extracting: "Fetching…",
+  extractFailed: "Couldn’t get lyrics from that link — the page may block it. Try another source or paste the text.",
   autoOrType: "auto or type", autoTranslate: "⟳ Auto-translate", translating: "Translating…",
   translateHint: "Auto-translate goes line-for-line, so the columns stay aligned. Machine translation is a rough first draft — fixing it by hand is where the learning is.",
   removeSong: "Remove this song",
