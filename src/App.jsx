@@ -1031,8 +1031,7 @@ function Reader({ song, targetLang, onBack, onEdit, onPractice, onFoundMedia }) 
   const pick = (s) => { setSource(s); try { localStorage.setItem(PLAYER_KEY, s); } catch {} };
 
   const [autoScroll, setAutoScroll] = useState(false);
-  const [immersive, setImmersive] = useState(false);   // hide the translation; tap a line to reveal
-  const [revealed, setRevealed] = useState({});        // line indices peeked in immersive mode
+  const [immersive, setImmersive] = useState(false);   // hide the English; read in the original (+ pictures)
   const [emoji, setEmoji] = useState(null);            // emoji per line, or null when off
   const [emojiBusy, setEmojiBusy] = useState(false);
   const [illustOk, setIllustOk] = useState(false);     // OpenAI key present → emoji anchors offered
@@ -1138,38 +1137,26 @@ function Reader({ song, targetLang, onBack, onEdit, onPractice, onFoundMedia }) 
         )}
         {!has ? (
           <div className="emptysheet">{t("noLyricsHere")}<br />{t("tapEditToPaste")}</div>
-        ) : immersive ? (
-          <div className="imm">
-            {Array.from({ length: n }).map((_, i) => {
-              const p = (pl[i] || "").trim(), e = (en[i] || "").trim();
-              if (!p && !e) return <div key={i} className="immgap" />;
-              const open = !!revealed[i];
-              return (
-                <button key={i} className={"immline" + (open ? " open" : "")}
-                  onClick={() => setRevealed((r) => ({ ...r, [i]: !r[i] }))}>
-                  <span className="immpl">{esc(p) || " "}</span>
-                  {emoji && emoji[i] ? <span className="immemoji">{emoji[i]}</span> : null}
-                  {open && e ? <span className="immen">{esc(e)}</span> : null}
-                </button>
-              );
-            })}
-            <p className="immhint">{t("immHint")}</p>
-          </div>
         ) : (
           <>
-            <div className="sheethead"><span>{song.language}</span><span>{targetLang || "English"}</span></div>
-            <div className="grid">
+            <div className={"sheethead" + (immersive && !emoji ? " solo" : "")}>
+              <span>{song.language}</span>
+              {!(immersive && !emoji) && <span>{immersive ? t("picturesCol") : (targetLang || "English")}</span>}
+            </div>
+            <div className={"grid" + (immersive && !emoji ? " solo" : "")}>
               {Array.from({ length: n }).map((_, i) => {
                 const p = (pl[i] || "").trim(), e = (en[i] || "").trim();
+                const em = emoji && emoji[i] ? emoji[i] : "";
                 if (!p && !e) return <React.Fragment key={i}><div className="cell gap pl" /><div className="cell gap en" /></React.Fragment>;
                 return (
                   <React.Fragment key={i}>
                     <div className="cell pl">{esc(p) || " "}</div>
-                    <div className="cell en">{emoji && emoji[i] ? <span className="cememoji">{emoji[i]} </span> : null}{esc(e) || " "}</div>
+                    <div className="cell en">{em ? <span className="cememoji">{em} </span> : null}{!immersive && e ? esc(e) : null}{!em && (immersive || !e) ? " " : null}</div>
                   </React.Fragment>
                 );
               })}
             </div>
+            {immersive && <p className="immhint">{t("immHint")}</p>}
           </>
         )}
       </div>
@@ -1848,6 +1835,7 @@ const CSS = `
 .sheethead{ display:grid; grid-template-columns:1fr 1fr; padding:12px 8px 10px; }
 .sheethead span{ font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:#a99a82; font-weight:600; padding:0 14px; } .sheethead span+span{ border-left:1px solid var(--rule); }
 .grid{ display:grid; grid-template-columns:1fr 1fr; }
+.grid.solo{ grid-template-columns:1fr; } .grid.solo .cell.en{ display:none; } .sheethead.solo{ grid-template-columns:1fr; }
 .cell{ min-width:0; padding:5px 14px; } .cell.pl{ font-family:var(--serif); font-size:17px; line-height:1.5; color:var(--ink); }
 .cell.en{ font-family:var(--ui); font-size:14px; line-height:1.62; color:var(--ink-soft); border-left:1px solid var(--rule); }
 .cell.gap{ height:12px; padding:0; } .cell.gap.en{ border-left:1px solid var(--rule); }
