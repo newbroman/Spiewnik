@@ -1147,8 +1147,8 @@ function Reader({ song, targetLang, onBack, onEdit, onPractice, onFoundMedia }) 
               return (
                 <button key={i} className={"immline" + (open ? " open" : "")}
                   onClick={() => setRevealed((r) => ({ ...r, [i]: !r[i] }))}>
-                  {emoji && emoji[i] ? <span className="immemoji">{emoji[i]}</span> : null}
                   <span className="immpl">{esc(p) || " "}</span>
+                  {emoji && emoji[i] ? <span className="immemoji">{emoji[i]}</span> : null}
                   {open && e ? <span className="immen">{esc(e)}</span> : null}
                 </button>
               );
@@ -1164,8 +1164,8 @@ function Reader({ song, targetLang, onBack, onEdit, onPractice, onFoundMedia }) 
                 if (!p && !e) return <React.Fragment key={i}><div className="cell gap pl" /><div className="cell gap en" /></React.Fragment>;
                 return (
                   <React.Fragment key={i}>
-                    <div className="cell pl">{emoji && emoji[i] ? <span className="cememoji">{emoji[i]} </span> : null}{esc(p) || " "}</div>
-                    <div className="cell en">{esc(e) || " "}</div>
+                    <div className="cell pl">{esc(p) || " "}</div>
+                    <div className="cell en">{emoji && emoji[i] ? <span className="cememoji">{emoji[i]} </span> : null}{esc(e) || " "}</div>
                   </React.Fragment>
                 );
               })}
@@ -1862,7 +1862,7 @@ const CSS = `
 .imm{ padding:6px 4px 4px; }
 .immline{ display:block; width:100%; text-align:left; background:transparent; border:0; border-bottom:1px solid var(--rule); padding:11px 14px; cursor:pointer; }
 .immline:last-of-type{ border-bottom:0; }
-.immline .immemoji{ font-size:19px; margin-right:10px; vertical-align:middle; }
+.immline .immemoji{ display:block; font-size:19px; margin-top:6px; }
 .immline .immpl{ font-family:var(--serif); font-size:18px; line-height:1.5; color:var(--ink); }
 .immline .immen{ display:block; font-family:var(--ui); font-size:13.5px; line-height:1.55; color:var(--ink-soft); margin-top:5px; }
 .immline.open{ background:rgba(0,0,0,.03); }
