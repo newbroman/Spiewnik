@@ -283,7 +283,7 @@ export default function App() {
           onSettings={() => setView("settings")}
           onSignOut={() => supabase.auth.signOut()}
           onHelp={() => setView("help")}
-          onFeedback={() => setView("feedback")}
+          onFeedback={openPlayFeedback}
         />
       )}
       {view === "help" && <Help onBack={() => setView("list")} onReplayTour={() => { setView("list"); setShowTour(true); }} />}
@@ -953,6 +953,19 @@ function Help({ onBack, onReplayTour }) {
       </div>
     </>
   );
+}
+
+// Feedback goes to the Google Play listing, where testers can leave private
+// feedback that shows up in Play Console (Ratings and reviews > Testing feedback).
+// On Android the market:// link opens the Play Store app directly; elsewhere the web listing.
+const PLAY_ID = "app.spiewnik.twa";
+function openPlayFeedback() {
+  const web = `https://play.google.com/store/apps/details?id=${PLAY_ID}`;
+  if (/android/i.test(navigator.userAgent)) {
+    window.location.href = `market://details?id=${PLAY_ID}`;
+  } else {
+    window.open(web, "_blank", "noopener");
+  }
 }
 
 function Feedback({ email, onBack, onSent }) {
