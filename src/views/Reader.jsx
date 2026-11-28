@@ -6,7 +6,8 @@ import { clearLine, gradeLine, loadSongProgress } from "../lib/learning.js";
 import GlossSheet from "./GlossSheet.jsx";
 import PrintSheet from "./PrintSheet.jsx";
 
-const MODE_KEY = "spiewnik.readmode.v1";          // study | side | immersive
+const MODE_KEY = "spiewnik.readmode.v1";
+const LAYOUT_KEY = "spiewnik.readlayout.v1";       // cols (side by side) | stack (translation under each line)          // study | side | immersive
 const PLAYER_COLLAPSED_KEY = "spiewnik.playercollapsed.v1";
 const GLOSS_HINT_KEY = "spiewnik.glosshint.v1";
 const WORD_SPLIT = /([\p{L}\p{M}]+(?:['’][\p{L}\p{M}]+)*)/u;
@@ -59,6 +60,8 @@ export default function Reader({ song, targetLang, onBack, onEdit, onPractice, o
   // Reading mode, remembered. "immersive" is the old Immersive toggle, unchanged.
   const [mode, setModeRaw] = useState(() => { const m = lsGet(MODE_KEY, "study"); return ["study", "side", "immersive"].includes(m) ? m : "study"; });
   const setMode = (m) => { setModeRaw(m); lsSet(MODE_KEY, m); };
+  const [layout, setLayoutRaw] = useState(() => (lsGet(LAYOUT_KEY, "cols") === "stack" ? "stack" : "cols"));
+  const toggleLayout = () => setLayoutRaw((l) => { const nx = l === "cols" ? "stack" : "cols"; lsSet(LAYOUT_KEY, nx); return nx; });
   const immersive = mode === "immersive";              // hide the English; read in the original (+ pictures)
   const study = mode === "study";
   const [collapsed, setCollapsed] = useState(() => lsGet(PLAYER_COLLAPSED_KEY, "0") === "1");
@@ -226,6 +229,11 @@ export default function Reader({ song, targetLang, onBack, onEdit, onPractice, o
               <button className={"stool" + (mode === "side" ? " on" : "")} aria-pressed={mode === "side"} onClick={() => setMode("side")}>{t("modeSide")}</button>
               <button className={"stool" + (immersive ? " on" : "")} aria-pressed={immersive} onClick={() => setMode(immersive ? "side" : "immersive")}>{t("immersive")}</button>
             </div>
+            {!(immersive && !emoji) && (
+              <button className="stool" onClick={toggleLayout} aria-label={t(layout === "cols" ? "layoutToStack" : "layoutToCols")} title={t(layout === "cols" ? "layoutToStack" : "layoutToCols")}>
+                {layout === "cols" ? "▥ " + t("layoutCols") : "☰ " + t("layoutStack")}
+              </button>
+            )}
             {study && (
               <button className="stool" onClick={toggleAll} aria-pressed={allRevealed}>{allRevealed ? t("hideAll") : t("revealAll")}</button>
             )}
@@ -247,7 +255,7 @@ export default function Reader({ song, targetLang, onBack, onEdit, onPractice, o
                 <button onClick={dismissHint}>{t("gotIt")}</button>
               </div>
             )}
-            <div className="study">
+            <div className={"study " + (layout === "cols" ? "scols" : "sstack")}>
               {Array.from({ length: n }).map((_, i) => {
                 const p = (pl[i] || "").trim(), e = (en[i] || "").trim();
                 const em = emoji && emoji[i] ? emoji[i] : "";
@@ -265,7 +273,8 @@ export default function Reader({ song, targetLang, onBack, onEdit, onPractice, o
                         {p.split(WORD_SPLIT).map((part, k) => (k % 2 ? <span key={k} className="sw" data-w={part}>{part}</span> : part))}
                         {st && <span className={"sbadge " + st} title={t(st === "known" ? "lineKnown" : "lineShaky")}><span className="vh">{t(st === "known" ? "lineKnown" : "lineShaky")}</span></span>}
                       </span>
-                      {open && <span className="sen">{em ? <span className="cememoji">{em} </span> : null}{e || "—"}</span>}
+                      {open ? <span className="sen">{em ? <span className="cememoji">{em} </span> : null}{e || "—"}</span>
+                        : layout === "cols" ? <span className="sen sph" aria-hidden="true">···</span> : null}
                     </div>
                     {open && !song.demo && (
                       <div className="lstate" role="group" aria-label={t("lineStateAria")}>
@@ -281,11 +290,11 @@ export default function Reader({ song, targetLang, onBack, onEdit, onPractice, o
           </>
         ) : (
           <>
-            <div className={"sheethead" + (immersive && !emoji ? " solo" : "")}>
+            <div className={"sheethead" + (immersive && !emoji ? " solo" : "") + (layout === "stack" ? " gstack" : "")}>
               <span>{song.language}</span>
               {!(immersive && !emoji) && <span>{immersive ? t("picturesCol") : (targetLang || "English")}</span>}
             </div>
-            <div className={"grid" + (immersive && !emoji ? " solo" : "")}>
+            <div className={"grid" + (immersive && !emoji ? " solo" : "") + (layout === "stack" ? " gstack" : "")}>
               {Array.from({ length: n }).map((_, i) => {
                 const p = (pl[i] || "").trim(), e = (en[i] || "").trim();
                 const em = emoji && emoji[i] ? emoji[i] : "";
