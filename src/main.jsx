@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { registerSW } from "virtual:pwa-register";
 import App from "./App.jsx";
 import "./index.css";
+import "./styles.css";
 
 // Keep the installed app (PWA / TWA) on the latest deploy instead of serving a
 // stale cached build. In autoUpdate mode the new service worker activates as

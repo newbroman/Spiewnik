@@ -7,72 +7,109 @@ that follows whichever language you're learning in.
 
 Live: **https://spiewnik-seven.vercel.app**
 
-It's a Vite/React single-page app deployed to Vercel, with a handful of serverless
-functions and a Supabase backend (accounts + database), so there is no GitHub Pages
-link.
+It's a Vite/React single-page app (installable PWA) deployed to Vercel, with a
+handful of serverless functions under `api/` and a Supabase backend (auth +
+Postgres with Row Level Security).
 
 ## What it does
 
-- **Accounts, private libraries.** Each person signs in (email + password via
-  Supabase Auth) and sees only their own songs. Isolation is enforced in the
-  database with Row Level Security, not just in the UI.
-- **Any artist, any language.** The library is indexed by language and then by
-  artist. Add songs by searching (iTunes Search API) or by hand.
-- **Side-by-side study.** The original lyric and its translation sit in two
-  aligned columns, line for line.
-- **Lyrics, with less typing.** A song opens and tries to auto-fetch its lyric
-  (lyrics.ovh); a prominent **Find lyrics on Google** button (tuned to the song's
-  language) is the reliable fallback — copy from the results and paste.
-- **Auto-translate.** Line-by-line translation via DeepL (or Google), into each
-  user's chosen target language. Everyone gets a few free translations on the
-  shared key, then adds **their own free DeepL key** (stored privately in their
-  profile) to continue on their own quota.
-- **Playback.** Each song resolves on YouTube and Spotify; the player is pinned at
-  the top while the lyrics scroll underneath, with a teleprompter-style
-  adjustable auto-scroll.
+- **Accounts, private libraries.** Each person signs in (Supabase Auth) and sees
+  only their own songs. Isolation is enforced in the database with Row Level
+  Security, not just in the UI.
+- **Find songs.** Search merges Spotify, iTunes and Deezer results; you can also
+  paste a Spotify track/album/playlist link or a YouTube link, or add a song by hand.
+- **Lyrics, with less typing.** A song tries, in order: an exact lookup in
+  lyrics.ovh (`source: "lookup"`); a web search that reads candidate lyric pages
+  and copies the lyric out of the page text (`source: "web"`, with the page URL);
+  or a link the user pastes (`source: "link"`). Pasting the text by hand always
+  works. Lyrics are never generated from a model's memory.
+- **Auto-translate.** Line-by-line translation via DeepL (or Google). Everyone gets
+  a monthly allowance of characters on the shared key, then can add **their own
+  free DeepL key**, which is stored server-side and never sent back to the browser.
+- **Word gloss.** Tap a word for its dictionary form, part of speech, meaning and a
+  short grammar note, as used in that line.
+- **Playback.** Each song resolves on YouTube (and Spotify); the player stays pinned
+  while the lyrics scroll, with adjustable auto-scroll.
 - **Pronunciation practice.** Hear each line (speech synthesis) and say it back for
-  a per-word match score (speech recognition), in the song's language.
-- **Localised interface.** The whole UI follows the user's chosen language — 20
-  languages, with English fallback (see `src/i18n.js`).
-- **Installable PWA.** Manifest + service worker, so it can be added to a home
-  screen and run full-screen.
+  a per-word match score (speech recognition, with optional Whisper transcription).
+- **Localised interface** in 20 languages, with English fallback.
 
 ## Stack
 
-- **Vite + React** single-page app (`src/App.jsx` is the whole UI; `src/i18n.js`
-  the translations; `src/supabase.js` the client).
-- **Supabase** — Auth, Postgres, and Row Level Security. Tables: `songs`
-  (per-user songs) and `profiles` (per-user DeepL key, free-trial count, and
-  target language). The publishable/anon key ships in the client; RLS is what
-  protects the data.
-- **Vercel serverless functions** under `api/` for everything that needs a secret
-  or must avoid browser CORS.
+- **Vite + React** client in `src/`.
+- **Supabase**: Auth, Postgres and Row Level Security. Tables include `songs`,
+  `profiles` (target language etc.), and, from `supabase/migrations/001_*`,
+  `usage` (server-owned monthly counters), `entitlements` (plan per user) and
+  `user_keys` (each user's own DeepL key; write-only from the client).
+- **Vercel serverless functions** in `api/` for everything that needs a secret
+  or must avoid browser CORS. Files starting with `_` are shared modules, not
+  endpoints (the Hobby plan allows 12 functions).
 
-## Project structure
+## API
 
 | Path | Purpose |
 | --- | --- |
-| `src/App.jsx` | The whole app: auth, library, reader, editor, practice, players, settings |
-| `src/i18n.js` | UI translations (20 languages) and the `makeT` helper |
-| `src/supabase.js` | Supabase client + API auth header |
-| `api/_auth.js` | Shared authorization for the proxies (Supabase session or legacy passphrase) |
-| `api/translate.js` | DeepL/Google line-by-line translation; per-user key + free-trial logic |
-| `api/search.js` | Song search (iTunes Search API) |
-| `api/lyrics.js` | Lyric auto-fetch (lyrics.ovh) |
+| `api/translate.js` | Line-by-line DeepL/Google translation; trial counted in characters; ops `setkey` and `usage` |
+| `api/ai.js` | OpenAI ops: `transcribe`, `suggest`, `illustrate`, `tidy`, `extract`, `findlyrics`, `gloss` |
+| `api/lyrics.js` | lyrics.ovh lookup with artist/title normalisation and an in-memory cache |
+| `api/search.js` | Song search (Spotify + iTunes + Deezer, merged) with an in-memory cache |
+| `api/resolve.js` | Turn a pasted Spotify/YouTube link into songs |
 | `api/youtube.js` / `api/spotify.js` | Resolve a song to a YouTube video / Spotify track |
-| `vite.config.js` | Dev server + PWA (manifest, service worker) |
-| `.env.example` | Template for environment variables |
+| `api/_auth.js` | Auth: local JWT verification (jose + JWKS), `/auth/v1/user` fallback, legacy passphrase |
+| `api/_supa.js` | Supabase REST/RPC calls made with the user's own JWT |
+| `api/_aicap.js` | Per-user monthly cap for the OpenAI features |
+| `api/_safefetch.js` | SSRF-safe fetch for user-supplied and scraped URLs |
+| `api/_lru.js` | Small in-memory LRU cache |
+
+Each file's header documents its request/response contract. Client-facing
+changes from the server-hardening work are listed in `API_CHANGES.md`.
+
+### Quotas (server-owned)
+
+All counters live in `public.usage`, which users can read but not write; the
+functions add to them through the `consume_usage` RPC, using the signed-in
+user's own token, only **after** the provider call succeeds.
+
+- **Translation trial:** 60,000 characters per user per month on the shared key
+  (`TRIAL_CHARS` in `api/translate.js`). Your own DeepL key is not counted.
+  Title/album translations (`kind: "title"`) aren't counted either.
+- **Per request:** at most 8,000 characters and 400 lines (title requests: 300
+  characters, 4 lines). Bigger requests get a 413 with the limits, so the
+  client sends long songs in chunks.
+- **OpenAI features:** 500 successful requests per user per month (`AI_LIMIT`
+  in `api/_aicap.js`), an anti-abuse ceiling rather than a quota people should feel.
 
 ## Environment variables
 
-Set these in the Vercel project (see the `SETUP-*.md` files for each).
+Set these in the Vercel project (Production **and** Preview). See `.env.example`
+for the full annotated list.
 
-- `DEEPL_API_KEY`, `TRANSLATE_PROVIDER` (`deepl` or `google`), `GOOGLE_TRANSLATE_API_KEY` — translation (`SETUP-TRANSLATE.md`).
-- `YOUTUBE_API_KEY` — the inline YouTube player (`SETUP-YOUTUBE.md`).
-- `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` — the Spotify player (`SETUP-SPOTIFY.md`).
-- `SUPABASE_URL`, `SUPABASE_ANON_KEY` — optional server-side overrides; defaults match the client in `src/supabase.js`. `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` override them at build time.
-- `KV_REST_API_URL`, `KV_REST_API_TOKEN` — only for the legacy one-time import.
-- `APP_PASSPHRASE` — legacy single-user lock; leave unset for the multi-user app.
+| Variable | Used for |
+| --- | --- |
+| `OPENAI_API_KEY` | All `/api/ai` features |
+| `DEEPL_API_KEY` | Shared translation key (`SETUP-TRANSLATE.md`) |
+| `GOOGLE_TRANSLATE_API_KEY` | Optional Google provider and automatic fallback when DeepL is out of quota |
+| `TRANSLATE_PROVIDER` | Default provider, `deepl` or `google` |
+| `YOUTUBE_API_KEY` | YouTube player and YouTube links (`SETUP-YOUTUBE.md`) |
+| `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` | Search, Spotify links, Spotify player (`SETUP-SPOTIFY.md`) |
+| `SUPABASE_URL`, `SUPABASE_ANON_KEY` | Server-side Supabase project (optional; defaults match the client) |
+| `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | Client build-time override of the Supabase project |
+| `APP_PASSPHRASE` | Legacy single-user lock; leave unset for the multi-user app |
+| `VITE_PROXY_TARGET` | Local dev only: send `/api` to a deployed instance |
+
+No Supabase service-role key is needed by the current code.
+
+## Database migrations
+
+SQL migrations live in `supabase/migrations/`, numbered `001_…`, `002_…` and so
+on. To apply them, open the Supabase dashboard → **SQL editor**, paste each file
+**in order**, and run it. Every migration is written to be idempotent, so
+re-running one is safe. Apply new migrations **before** deploying code that
+depends on them. In particular the API refuses quota-checked requests
+(`503 usage_unavailable`) until `001_usage_and_entitlements.sql` is in place.
+
+More migrations (002 and later) may be added as the client and server evolve;
+apply any you haven't run yet, in number order.
 
 ## Development
 
@@ -84,20 +121,20 @@ npm run preview  # serve the production build locally
 ```
 
 Auth and data work against the hosted Supabase project out of the box. For the
-`/api/*` functions locally, point `npm run dev` at the deployed functions by
-setting `VITE_PROXY_TARGET` in `.env` (copy from `.env.example`), or run
-`vercel dev`. Do not commit `.env`; it is git-ignored.
+`/api/*` functions locally, either set `VITE_PROXY_TARGET` in `.env` to point at
+a deployed instance, or run `vercel dev` with the server variables in `.env`.
+Do not commit `.env`; it is git-ignored.
 
 ## Deployment (Vercel)
 
 1. Import the repo at vercel.com; it detects Vite automatically.
-2. Add the environment variables above (at least the Supabase, translation and
-   YouTube ones) for the Production **and** Preview environments.
-3. Deploy. The app and `/api/*` share an origin, so no further configuration is
-   needed in the app.
+2. Apply the database migrations (above).
+3. Add the environment variables for Production **and** Preview.
+4. Deploy. The app and `/api/*` share an origin, so nothing else needs configuring.
 
 ## Lyrics and copyright
 
 No lyrics are bundled. Each person adds lyrics to their **own private** library for
-personal study; nothing is shared between accounts. Auto-translation is a rough
-first draft to correct by hand — which is where the learning is.
+personal study, and nothing is shared between accounts. Every fetched lyric records
+where it came from (`lookup`, `web` + URL, or `link` + URL). Auto-translation is a
+rough first draft to correct by hand, which is where the learning happens.
