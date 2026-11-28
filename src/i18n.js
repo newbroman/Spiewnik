@@ -130,6 +130,7 @@ const EN = {
   // ---- nav & onboarding ----
   back: "Back", menu: "More options", close: "Close",
   authGoogle: "Continue with Google", authOr: "or",
+  authGoogleNote: "Google will say you’re continuing to “…supabase.co” — that’s Śpiewnik’s secure sign-in service, so it’s safe to continue.",
   forgotPw: "Forgot password?", resetH: "Reset your password",
   resetBody: "Enter your email and we’ll send you a link to set a new password.",
   resetSend: "Send reset link", resetSent: "Check your email for a link to reset your password.",
@@ -298,6 +299,7 @@ const PL = {
   // ---- nav & onboarding ----
   back: "Wstecz", menu: "Więcej opcji", close: "Zamknij",
   authGoogle: "Kontynuuj z Google", authOr: "lub",
+  authGoogleNote: "Google pokaże adres „…supabase.co” — to bezpieczna usługa logowania Śpiewnika, więc możesz kontynuować.",
   forgotPw: "Nie pamiętasz hasła?", resetH: "Zresetuj hasło",
   resetBody: "Podaj swój e-mail, a wyślemy link do ustawienia nowego hasła.",
   resetSend: "Wyślij link", resetSent: "Sprawdź e-mail — wysłaliśmy link do zresetowania hasła.",

@@ -477,3 +477,5 @@
   .printroot .noprint{ display:none !important; }
   .printpage{ box-shadow:none; margin:0; padding:0; max-width:none; }
 }
+
+.lockcard .googlenote{ margin:8px 2px 0; font-size:11.5px; line-height:1.45; color:var(--mist-dim); text-align:center; }

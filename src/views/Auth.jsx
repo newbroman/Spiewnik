@@ -89,6 +89,7 @@ export default function Auth({ initialMode = "signin", notice = "", onDemo }) {
             <button type="button" className="googlebtn" onClick={google} disabled={busy}>
               <span className="gmark" aria-hidden="true">G</span>{t("authGoogle")}
             </button>
+            <p className="googlenote">{t("authGoogleNote")}</p>
             <div className="author"><span>{t("authOr")}</span></div>
           </>
         )}
