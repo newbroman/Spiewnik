@@ -16,6 +16,9 @@ import { apiHeaders, setAccessToken, supabase } from "./supabase.js";
 import { makeT } from "./i18n.js";
 import Feedback, { openPlayFeedback } from "./views/Feedback.jsx";
 import { toastBus } from "./lib/toast.js";
+// ---- reader & learning ----
+import Review from "./views/Review.jsx";
+import Vocab from "./views/Vocab.jsx";
 
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = checking
@@ -231,6 +234,13 @@ export default function App() {
           onPractice={() => setView("practice")} onFoundMedia={(patch) => saveSong(patch)} />
       )}
       {view === "practice" && cur && <Practice song={cur} onBack={() => setView("reader")} />}
+      {/* ---- reader & learning ---- */}
+      {view === "review" && (
+        <Review songs={songs} onBack={() => setView("list")} onOpenSong={(id) => { setCurId(id); setView("reader"); }} />
+      )}
+      {view === "vocab" && (
+        <Vocab songs={songs} onBack={() => setView("list")} onOpenSong={(id) => { setCurId(id); setView("reader"); }} />
+      )}
       {view === "edit" && cur && (
         <Editor song={cur} provider={provider} setProvider={setProvider}
           hasOwnKey={hasOwnKey} onSaveKey={saveDeeplKey} targetLang={targetLang}
