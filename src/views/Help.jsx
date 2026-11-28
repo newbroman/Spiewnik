@@ -7,7 +7,7 @@ export default function Help({ onBack, onReplayTour }) {
   return (
     <>
       <div className="rbar">
-        <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
+        <button className="icbtn" onClick={onBack} aria-label={t("back")}>←</button>
         <div className="ttl"><h2>{t("help")}</h2><p>{t("helpSub")}</p></div>
       </div>
       <div className="editor">

@@ -30,7 +30,7 @@ export default function Feedback({ email, onBack, onSent }) {
   return (
     <>
       <div className="rbar">
-        <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
+        <button className="icbtn" onClick={onBack} aria-label={t("back")}>←</button>
         <div className="ttl"><h2>{t("feedback")}</h2><p>{t("feedbackSub")}</p></div>
       </div>
       <div className="editor">
@@ -45,5 +45,34 @@ export default function Feedback({ email, onBack, onSent }) {
         </div>
       </div>
     </>
+  );
+}
+
+// ---- Chooser opened from the library menu: in-app note or Play review --------
+// In the Play Store app (TWA) the Play review is the natural route, so it comes
+// first and is highlighted there; on the web the in-app form leads.
+export function FeedbackChooser({ preferPlay, onInApp, onPlay, onClose }) {
+  const t = useT();
+  const inApp = (
+    <button key="app" className={"chooseopt" + (preferPlay ? "" : " primary")} onClick={onInApp}>
+      <span className="chooseic" aria-hidden="true">✉️</span>
+      <span className="choosetx"><b>{t("fbInApp")}</b><small>{t("fbInAppSub")}</small></span>
+    </button>
+  );
+  const play = (
+    <button key="play" className={"chooseopt" + (preferPlay ? " primary" : "")} onClick={onPlay}>
+      <span className="chooseic" aria-hidden="true">★</span>
+      <span className="choosetx"><b>{t("fbPlay")}</b><small>{t("fbPlaySub")}</small></span>
+    </button>
+  );
+  return (
+    <div className="sheetwrap" role="dialog" aria-modal="true" aria-label={t("fbChooseH")} onClick={onClose}
+      onKeyDown={(e) => e.key === "Escape" && onClose()}>
+      <div className="choosecard" onClick={(e) => e.stopPropagation()}>
+        <h3>{t("fbChooseH")}</h3>
+        {preferPlay ? [play, inApp] : [inApp, play]}
+        <button className="choosecancel" onClick={onClose} autoFocus>{t("cancel")}</button>
+      </div>
+    </div>
   );
 }

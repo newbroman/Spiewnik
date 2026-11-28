@@ -1,10 +1,42 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { SPLIT_RE, esc, norm } from "../lib/util.js";
 import { useT } from "../lib/i18nContext.js";
 
 // ---- Library list -----------------------------------------------------------
-export default function ListView({ songs, loading, email, onOpen, onDelete, onAdd, onSettings, onSignOut, onHelp, onFeedback }) {
+// ---- Overflow (⋮) menu: Settings, Help, Feedback, Sign out ------------------
+function OverflowMenu({ items }) {
   const t = useT();
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("pointerdown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  return (
+    <div className="ovmenu" ref={ref}>
+      <button className="ovbtn" aria-label={t("menu")} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>⋮</button>
+      {open && (
+        <div className="ovlist" role="menu">
+          {items.map((it) => (
+            <button key={it.label} role="menuitem" className={"ovitem" + (it.accent ? " accent" : "")}
+              onClick={() => { setOpen(false); it.onClick(); }}>
+              <span className="ovic" aria-hidden="true">{it.icon}</span>{it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// `recent` = recently opened songs (most recent first). `offline` disables edits.
+export default function ListView({ songs, loading, email, recent = [], offline, onOpen, onDelete, onAdd, onSettings, onSignOut, onHelp, onFeedback, onShareList, onAddSample }) {
+  const t = useT();
+  const [sampleBusy, setSampleBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(null); // song id awaiting delete confirmation
   const [selArtist, setSelArtist] = useState(null); // drilled-in artist: { language, key } or null
   const [openAl, setOpenAl] = useState({});  // collapsed albums on the artist page (default open)
@@ -39,6 +71,9 @@ export default function ListView({ songs, loading, email, onOpen, onDelete, onAd
     });
   });
   const done = songs.filter((s) => s.pl && s.pl.trim()).length;
+  // "Continue" = last opened song; "Recent" = the few before it.
+  const cont = recent[0] || null;
+  const more = recent.slice(1, 6);
 
   // One song row: tap the body to open it, or the bin to delete (with an inline confirm).
   const songRow = (s, i) => {
@@ -53,7 +88,7 @@ export default function ListView({ songs, loading, email, onOpen, onDelete, onAd
           </span>
           <span className={"dot " + (filled ? "full" : "empty")} />
         </button>
-        {confirmDel === s.id ? (
+        {offline ? null : confirmDel === s.id ? (
           <span className="songdelask">
             <button className="songdel yes" onClick={() => { onDelete(s.id); setConfirmDel(null); }}>{t("del")}</button>
             <button className="songdel no" onClick={() => setConfirmDel(null)}>{t("keep")}</button>
@@ -95,12 +130,12 @@ export default function ListView({ songs, loading, email, onOpen, onDelete, onAd
       <div className="top">
         <div className="toprow">
           <div className="eyebrow">{t("libraryEyebrow")}</div>
-          <div className="topbtns">
-            <button className="signout" onClick={onHelp}>{t("help")}</button>
-            <button className="signout accent" onClick={onFeedback}>{t("feedback")}</button>
-            <button className="signout" onClick={onSettings}>{t("settings")}</button>
-            <button className="signout" onClick={onSignOut}>{t("signOut")}</button>
-          </div>
+          <OverflowMenu items={[
+            { icon: "⚙", label: t("settings"), onClick: onSettings },
+            { icon: "?", label: t("help"), onClick: onHelp },
+            { icon: "✉", label: t("feedback"), onClick: onFeedback, accent: true },
+            { icon: "⎋", label: t("signOut"), onClick: onSignOut },
+          ]} />
         </div>
         <h1>Śpiewnik</h1>
         <p>{songs.length === 0
@@ -108,8 +143,34 @@ export default function ListView({ songs, loading, email, onOpen, onDelete, onAd
           : `${t("filled", { done, total: songs.length })} ${t("signedInAs", { email })}`}</p>
       </div>
       <div className="body">
+        {offline && <div className="offlinebar" role="status">{t("offlineBanner")}</div>}
+        {/* LEARN_SLOT */}
+        {!loading && !query.trim() && !curAr && cont && (
+          <button className="contcard" onClick={() => onOpen(cont.id)}>
+            <span className="contlbl">{t("continueH")}</span>
+            <span className="conttitle">{cont.title || t("untitled")}</span>
+            <span className="contsub">{[cont.artist, cont.language].filter(Boolean).join(" · ")}</span>
+            <span className="contgo" aria-hidden="true">›</span>
+          </button>
+        )}
+        {!loading && !query.trim() && !curAr && more.length > 0 && (
+          <div className="recentwrap">
+            <div className="recenthdr">{t("recentH")}</div>
+            <div className="recentrow">
+              {more.map((s) => (
+                <button key={s.id} className="recentchip" onClick={() => onOpen(s.id)}>
+                  <b>{s.title || t("untitled")}</b>
+                  <small>{s.artist || "\u00a0"}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {!loading && songs.length > 0 && (
-          <div className="addtop"><button className="add" onClick={onAdd}>{t("addSongPlus")}</button></div>
+          <div className="addtop">
+            <button className="add" onClick={onAdd} disabled={offline}>{t("addSongPlus")}</button>
+            {onShareList && <button className="sharebtn" onClick={onShareList}>↗ {t("shareList")}</button>}
+          </div>
         )}
         {!loading && songs.length > 0 && (
           <div className="libsearch">
@@ -124,7 +185,20 @@ export default function ListView({ songs, loading, email, onOpen, onDelete, onAd
             <div className="emptyicon">♪</div>
             <h3>{t("emptyTitle")}</h3>
             <p>{t("emptyBody")}</p>
-            <button className="add big" onClick={onAdd}>{t("addFirst")}</button>
+            <button className="add big" onClick={onAdd} disabled={offline}>{t("addFirst")}</button>
+            {onAddSample && (
+              <div className="samplecard">
+                <div className="samplenote">♪</div>
+                <div className="sampletx">
+                  <h4>{t("sampleCardH")}</h4>
+                  <p>{t("sampleCardB")}</p>
+                  <button className="samplebtn" disabled={sampleBusy || offline}
+                    onClick={async () => { setSampleBusy(true); await onAddSample(); setSampleBusy(false); }}>
+                    {sampleBusy ? t("adding") : t("sampleAdd")}
+                  </button>
+                </div>
+              </div>
+            )}
             <button className="emptyhelp" onClick={onHelp}>{t("emptyHow")}</button>
           </div>
         ) : query.trim() ? (
