@@ -58,6 +58,11 @@
 
 import { getUser, passphraseOk, ALLOW_HEADERS } from "./_auth.js";
 import { rpc, readUsage, consumeUsage, KIND_TRIAL } from "./_supa.js";
+
+// Title/album translations don't use the trial, but have their own monthly
+// ceiling so they can't be used as an uncapped side door to the shared key.
+const KIND_TITLE = "title_chars";
+export const TITLE_CHARS = 20000;
 import { aiUsage } from "./_aicap.js";
 
 // Free shared-key characters per user PER MONTH. One-line change.
@@ -125,7 +130,7 @@ async function opTranslate(res, user, body) {
     const wantsKey = provider === "deepl";
     const [keyR, usageR] = await Promise.allSettled([
       wantsKey ? rpc(user, "get_deepl_key", {}) : Promise.resolve(null),
-      readUsage(user, KIND_TRIAL),
+      readUsage(user, [KIND_TRIAL, KIND_TITLE]),
     ]);
     if (keyR.status === "rejected") {
       // Can't tell whether they have their own key: don't guess and bill the trial.
@@ -138,6 +143,10 @@ async function opTranslate(res, user, body) {
     else if (counted) {
       console.log("translate: usage read failed", usageR.reason && usageR.reason.message);
       return res.status(503).json({ error: "usage_unavailable", message: "Usage tracking is unavailable right now. Please try again shortly." });
+    }
+    if (!ownKey && kind === "title") {
+      if (usageR.status !== "fulfilled") return res.status(503).json({ error: "usage_unavailable", message: "Usage tracking is unavailable right now. Please try again shortly." });
+      if (usageR.value[KIND_TITLE] + chars > TITLE_CHARS) return res.status(429).json({ error: "title_limit", message: "Too many title translations this month." });
     }
     if (counted && chars > 0 && used + chars > TRIAL_CHARS) {
       return res.status(402).json({
@@ -180,6 +189,9 @@ async function opTranslate(res, user, body) {
   const translations = lines.map(() => "");
   idx.forEach((pos, k) => { translations[pos] = out[k] ?? ""; });
 
+  if (user && !ownKey && kind === "title" && chars > 0) {
+    try { await consumeUsage(user, KIND_TITLE, chars); } catch (e) { console.log("translate: title charge failed", e && e.message); }
+  }
   // Charge the trial only for a successful shared-key lyrics translation.
   if (user && !ownKey && kind !== "title" && chars > 0) {
     try { used = await consumeUsage(user, KIND_TRIAL, chars); }
