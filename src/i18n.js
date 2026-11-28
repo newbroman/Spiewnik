@@ -196,6 +196,7 @@ const EN = {
   // ---- reader & learning ----
   modeStudy: "Study", modeSide: "Side by side", readMode: "Reading mode", readerTools: "Reader tools",
   revealAll: "Reveal all", hideAll: "Hide all",
+  layoutCols: "Columns", layoutStack: "Stacked", layoutToStack: "Show the translation under each line", layoutToCols: "Show the translation side by side",
   printSheet: "Print", printSheetAria: "Print or save this song sheet", printNow: "Print", printIncludeVocab: "Include my vocab ({n})", printVocabHead: "Vocabulary",
   lineKnown: "Known", lineShaky: "Shaky", lineAgain: "Again", lineStateAria: "How well do you know this line?",
   studyHint: "Study — tap a line to see its meaning, then mark it Known or Shaky. Press and hold a word to look it up.",
@@ -365,6 +366,7 @@ const PL = {
   // ---- reader & learning ----
   modeStudy: "Nauka", modeSide: "Obok siebie", readMode: "Tryb czytania", readerTools: "Narzędzia czytnika",
   revealAll: "Pokaż wszystko", hideAll: "Ukryj wszystko",
+  layoutCols: "Kolumny", layoutStack: "Pod spodem", layoutToStack: "Pokaż tłumaczenie pod każdym wersem", layoutToCols: "Pokaż tłumaczenie obok",
   printSheet: "Drukuj", printSheetAria: "Wydrukuj lub zapisz tekst piosenki", printNow: "Drukuj", printIncludeVocab: "Dołącz moje słówka ({n})", printVocabHead: "Słownictwo",
   lineKnown: "Znam", lineShaky: "Niepewne", lineAgain: "Jeszcze raz", lineStateAria: "Jak dobrze znasz ten wers?",
   studyHint: "Nauka — dotknij wersu, aby zobaczyć znaczenie, potem oznacz go jako Znam lub Niepewne. Przytrzymaj słowo, aby je sprawdzić.",

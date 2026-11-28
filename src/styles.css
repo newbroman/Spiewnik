@@ -376,15 +376,21 @@
 .lsbtn.shaky.on{ background:#d39a3a; border-color:#d39a3a; color:#20140f; }
 .glosshint{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin:6px 14px 4px; padding:8px 8px 8px 12px; border-radius:10px; background:#efe5d2; color:#5d5547; font-size:13px; line-height:1.45; }
 .glosshint button{ flex:none; min-height:40px; padding:0 13px; border-radius:8px; border:1px solid var(--rule); background:var(--paper); color:var(--ink); font-weight:600; font-size:12.5px; cursor:pointer; }
-/* Mobile: stack the translation under each original line */
+/* Layout toggle: "stack" puts the translation under each original line */
+.grid.gstack{ grid-template-columns:1fr; }
+.grid.gstack .cell.en{ border-left:0; padding-top:0; padding-bottom:8px; }
+.grid.gstack .cell.gap.en{ display:none; }
+.sheethead.gstack{ grid-template-columns:1fr; }
+.sheethead.gstack span+span{ display:none; }
+/* Study mode, side by side: original left, translation (once revealed) right */
+.study.scols .slinebtn{ display:grid; grid-template-columns:1fr 1fr; column-gap:14px; align-items:start; }
+.study.scols .sen{ margin-top:0; padding-left:12px; border-left:1px solid var(--rule); align-self:stretch; }
+.study.scols .sen.sph{ color:var(--rule); letter-spacing:.15em; }
 @media (max-width:640px){
-  .grid{ grid-template-columns:1fr; }
-  .grid .cell.en{ border-left:0; padding-top:0; padding-bottom:8px; }
-  .grid .cell.gap.en{ display:none; }
-  .sheethead{ grid-template-columns:1fr; }
-  .sheethead span+span{ display:none; }
-  .cell.pl{ font-size:17px; } .cell.en{ font-size:15px; }
   .sheet{ margin:12px 10px; }
+  .grid.gstack .cell.pl{ font-size:17px; } .grid.gstack .cell.en{ font-size:15px; }
+  .study.scols .slinebtn{ padding:10px 10px; column-gap:10px; }
+  .study.scols .spl{ font-size:15.5px; } .study.scols .sen{ font-size:13.5px; padding-left:10px; }
 }
 /* Gloss bottom sheet */
 .glosswrap{ position:fixed; inset:0; z-index:40; background:rgba(10,14,22,.5); display:flex; align-items:flex-end; justify-content:center; }
