@@ -3,12 +3,14 @@
 //
 //  Turns a pasted Spotify or YouTube link into a song the user can add,
 //  returning the same shape as /api/search so the picker can reuse it.
-//    - Spotify track URL -> Spotify track lookup (SPOTIFY_CLIENT_ID/SECRET)
-//    - YouTube URL       -> videos.list snippet (YOUTUBE_API_KEY, 1 quota unit),
-//                           with a best-effort "Artist - Title" parse.
+//    - Spotify track URL    -> one track (SPOTIFY_CLIENT_ID/SECRET)
+//    - Spotify album URL    -> every track on the album (pick which to add)
+//    - Spotify playlist URL -> its tracks (first 50)
+//    - YouTube URL          -> videos.list snippet (YOUTUBE_API_KEY, 1 quota unit),
+//                              with a best-effort "Artist - Title" parse.
 //
-//  GET /api/resolve?url=https://open.spotify.com/track/XXXX
-//    -> { results: [{ title, artist, album, year }] }
+//  GET /api/resolve?url=https://open.spotify.com/album/XXXX
+//    -> { results: [{ title, artist, album, year }, ...] }
 // ============================================================================
 
 import { authorized, ALLOW_HEADERS } from "./_auth.js";
@@ -61,6 +63,35 @@ async function fromSpotify(id) {
   };
 }
 
+// A Spotify album link -> every track on the album, so the user can pick.
+async function fromSpotifyAlbum(id) {
+  const token = await spotifyToken();
+  if (!token) return [];
+  const r = await fetch(`https://api.spotify.com/v1/albums/${id}`, { headers: { Authorization: "Bearer " + token } });
+  if (!r.ok) return [];
+  const a = await r.json();
+  const album = a.name || "";
+  const year = (a.release_date || "").slice(0, 4);
+  return (a.tracks?.items || [])
+    .map((t) => ({ title: t.name || "", artist: (t.artists || []).map((x) => x.name).filter(Boolean).join(", "), album, year }))
+    .filter((x) => x.title);
+}
+
+// A Spotify playlist link -> its tracks (first 50).
+async function fromSpotifyPlaylist(id) {
+  const token = await spotifyToken();
+  if (!token) return [];
+  const r = await fetch(`https://api.spotify.com/v1/playlists/${id}/tracks?limit=50`, { headers: { Authorization: "Bearer " + token } });
+  if (!r.ok) return [];
+  const j = await r.json();
+  return (j.items || [])
+    .map((it) => {
+      const t = it.track || {};
+      return { title: t.name || "", artist: (t.artists || []).map((x) => x.name).filter(Boolean).join(", "), album: t.album?.name || "", year: (t.album?.release_date || "").slice(0, 4) };
+    })
+    .filter((x) => x.title);
+}
+
 async function fromYouTube(id) {
   const KEY = process.env.YOUTUBE_API_KEY;
   if (!KEY) return null;
@@ -73,8 +104,16 @@ async function fromYouTube(id) {
   return { title, artist: artist || sn.channelTitle || "", album: "", year: (sn.publishedAt || "").slice(0, 4) };
 }
 
-function spotifyId(url) {
+function spotifyTrackId(url) {
   const m = url.match(/open\.spotify\.com\/track\/([A-Za-z0-9]+)/) || url.match(/spotify:track:([A-Za-z0-9]+)/);
+  return m ? m[1] : null;
+}
+function spotifyAlbumId(url) {
+  const m = url.match(/open\.spotify\.com\/album\/([A-Za-z0-9]+)/) || url.match(/spotify:album:([A-Za-z0-9]+)/);
+  return m ? m[1] : null;
+}
+function spotifyPlaylistId(url) {
+  const m = url.match(/open\.spotify\.com\/playlist\/([A-Za-z0-9]+)/) || url.match(/spotify:playlist:([A-Za-z0-9]+)/);
   return m ? m[1] : null;
 }
 function youtubeId(url) {
@@ -96,13 +135,18 @@ export default async function handler(req, res) {
   if (!url) return res.status(200).json({ results: [] });
 
   try {
-    const sid = spotifyId(url);
-    const yid = sid ? null : youtubeId(url);
-    let one = null;
-    if (sid) one = await fromSpotify(sid);
-    else if (yid) one = await fromYouTube(yid);
+    const sid = spotifyTrackId(url);
+    const albumId = sid ? null : spotifyAlbumId(url);
+    const playlistId = sid || albumId ? null : spotifyPlaylistId(url);
+    const yid = sid || albumId || playlistId ? null : youtubeId(url);
+
+    let results = [];
+    if (sid) { const one = await fromSpotify(sid); results = one && one.title ? [one] : []; }
+    else if (albumId) results = await fromSpotifyAlbum(albumId);
+    else if (playlistId) results = await fromSpotifyPlaylist(playlistId);
+    else if (yid) { const one = await fromYouTube(yid); results = one && one.title ? [one] : []; }
     else return res.status(200).json({ results: [], error: "unsupported" });
-    const results = one && one.title ? [one] : [];
+
     return res.status(200).json({ results });
   } catch (e) {
     return res.status(502).json({ error: e.message || "Resolve failed." });
