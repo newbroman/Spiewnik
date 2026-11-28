@@ -5,10 +5,10 @@ export default function TourOverlay({ onClose, onAdd }) {
   const t = useT();
   const [i, setI] = useState(0);
   const slides = [
-    { ic: "🎵", h: t("tour1H"), b: t("tour1B") },
-    { ic: "➕", h: t("tour2H"), b: t("tour2B") },
-    { ic: "🔤", h: t("tour3H"), b: t("tour3B") },
-    { ic: "🎤", h: t("tour4H"), b: t("tour4B") },
+    // Kept to three slides; copy matches what the app actually does.
+    { ic: "➕", h: t("tour1H"), b: t("tour1B") },
+    { ic: "🔤", h: t("tour2H"), b: t("tour2B") },
+    { ic: "🎧", h: t("tour3H"), b: t("tour3B") },
   ];
   const last = i === slides.length - 1;
   const s = slides[i];
