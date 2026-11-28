@@ -54,6 +54,20 @@ export const SONG_WORD = {
 };
 export const songWordOf = (name) => SONG_WORD[name] || "song";
 
+// Native word for "lyrics" — for a "search the web for these lyrics" link-out
+// (e.g. "Kaśka Sochocka Nocą tekst").
+export const LYRICS_WORD = {
+  English: "lyrics", Polish: "tekst", Spanish: "letra", French: "paroles",
+  German: "Songtext", Italian: "testo", Portuguese: "letra", Dutch: "songtekst",
+  Russian: "текст песни", Ukrainian: "текст пісні", Czech: "text", Swedish: "låttext",
+  Norwegian: "sangtekst", Danish: "sangtekst", Finnish: "sanat", Greek: "στίχοι",
+  Turkish: "şarkı sözleri", Japanese: "歌詞", Korean: "가사", Chinese: "歌词",
+};
+export const lyricsWordOf = (name) => LYRICS_WORD[name] || "lyrics";
+
+// Hostname for display ("www.tekstowo.pl" → "tekstowo.pl"); "" if not a URL.
+export const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } };
+
 export const PLAYER_KEY = "spiewnik.player.v1";
 export const PROVIDER_KEY = "spiewnik.provider.v1";
 
