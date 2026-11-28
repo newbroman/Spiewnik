@@ -14,8 +14,10 @@ export default defineConfig(() => {
         registerType: "autoUpdate",
         includeAssets: ["apple-touch-icon-180.png"],
         // The built app shell is precached for offline use. /api calls are not
-        // part of the build, so they always hit the network (and the app falls
-        // back to its local cache of lyrics when offline).
+        // part of the build, so they always hit the network. Song data comes
+        // from Supabase; the app keeps its own copy of the library (and each
+        // opened song) in IndexedDB — src/lib/offlineCache.js — and shows that
+        // when offline. The service worker itself caches no song data.
         workbox: {
           navigateFallback: "/index.html",
           navigateFallbackDenylist: [/^\/api\//],
@@ -32,6 +34,13 @@ export default defineConfig(() => {
           orientation: "portrait",
           start_url: "/",
           scope: "/",
+          // Lets Android's share sheet send a Spotify/YouTube link to the app;
+          // App.jsx picks /share?… up and opens Add a song with it.
+          share_target: {
+            action: "/share",
+            method: "GET",
+            params: { title: "title", text: "text", url: "url" },
+          },
           icons: [
             { src: "icon-192.png", sizes: "192x192", type: "image/png" },
             { src: "icon-512.png", sizes: "512x512", type: "image/png" },
