@@ -5,10 +5,12 @@ import { blobToBase64 } from "../lib/practice.js";
 import { useT } from "../lib/i18nContext.js";
 
 // ---- Add a song (search, pick, or add manually) ----------------------------
-export default function AddSong({ onBack, onCreate }) {
+// `initialQuery` prefills the box and runs it at once — used when a Spotify or
+// YouTube link is shared into the app, so the usual link-resolve flow runs.
+export default function AddSong({ onBack, onCreate, initialQuery = "" }) {
   const t = useT();
   const [language, setLanguage] = useState("Polish");
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initialQuery);
   const [results, setResults] = useState([]);
   const [busy, setBusy] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -20,7 +22,6 @@ export default function AddSong({ onBack, onCreate }) {
   const [voiceRec, setVoiceRec] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMode, setAiMode] = useState(false);    // current results came from AI
-  const [aiQuery, setAiQuery] = useState("");     // the theme behind the current AI results
   const [openai, setOpenai] = useState(false);     // OPENAI key present → voice + AI offered
   const vMediaRef = useRef(null), vStreamRef = useRef(null), vChunksRef = useRef([]);
 
@@ -49,13 +50,13 @@ export default function AddSong({ onBack, onCreate }) {
     } catch { if (my === seqRef.current) setResults([]); }
     finally { if (my === seqRef.current) setBusy(false); }
   }
-  // AI suggestions — turn a theme / vague request into a list of real songs.
-  // This is the primary "search": it returns real, existing songs that fit.
+  // "Ideas by theme" — AI turns a theme / mood into a list of real songs. A
+  // separate, opt-in button; the catalogue search is the default.
   async function askAI(queryArg) {
     const query = (typeof queryArg === "string" ? queryArg : q).trim();
     if (aiBusy || !query) return;
     seqRef.current++;                                  // cancel any pending live search
-    setAiBusy(true); setSearched(true); setAiQuery(query);
+    setAiBusy(true); setSearched(true);
     try {
       const r = await fetch("/api/ai?op=suggest", {
         method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
@@ -110,25 +111,21 @@ export default function AddSong({ onBack, onCreate }) {
     setTimeout(() => { try { if (mr.state !== "inactive") mr.stop(); } catch {} }, 6000); // short query cap
   }
 
-  // The main search action. A pasted Spotify/YouTube link resolves to that exact
-  // track; anything else goes to the AI, which returns real songs that fit the
-  // request (a title, an artist, or a theme like "Polish nursery rhymes"). The
-  // catalogue search is only a fallback for when the AI key isn't configured.
+  // The main search action: the catalogue (Spotify / iTunes / Deezer), or — for
+  // a pasted Spotify/YouTube link — the resolver, which finds that exact track.
   function primarySearch(queryArg) {
     const query = (typeof queryArg === "string" ? queryArg : q).trim();
     if (!query) return;
-    const isLink = /^https?:\/\/\S+$/i.test(query) && /(spotify\.com|youtu\.be|youtube\.com)/i.test(query);
-    if (isLink) return runSearch(query);
-    if (openai) return askAI(query);
     return runSearch(query);
   }
+  // A shared link (or text) arrives prefilled: run it straight away.
+  useEffect(() => { if (initialQuery.trim()) primarySearch(initialQuery); /* eslint-disable-next-line */ }, []);
   async function pick(res) {
     if (creating) return;
     setCreating(true);
-    // AI-suggested songs carry no album. Rather than scattering a one-off album
-    // per song, group them under the theme you searched (e.g. "Polish nursery
-    // rhymes") so they sit together in your library.
-    const album = (res.album || "").trim() || (aiMode ? aiQuery.trim() : "");
+    // AI suggestions carry no album; leave it blank (it can be filled in later
+    // from the catalogue in Settings) rather than inventing one from the query.
+    const album = (res.album || "").trim();
     await onCreate({ language, artist: res.artist, album, title: res.title });
   }
   async function createManual() {
@@ -142,7 +139,7 @@ export default function AddSong({ onBack, onCreate }) {
   return (
     <>
       <div className="rbar">
-        <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
+        <button className="icbtn" onClick={onBack} aria-label={t("back")}>←</button>
         <div className="ttl"><h2>{t("addTitle")}</h2><p>{t("addSub")}</p></div>
       </div>
       <div className="editor">
@@ -157,7 +154,7 @@ export default function AddSong({ onBack, onCreate }) {
           <>
             <label className="searchlabel">{t("searchHdr")}</label>
             <div className="searchrow">
-              <input value={q} autoFocus placeholder={t("searchPh")}
+              <input value={q} autoFocus={!initialQuery} placeholder={t("searchPh")}
                 onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && primarySearch()} />
               {openai && (
                 <button className={"micbtn" + (voiceRec ? " on" : "")} onClick={toggleVoice} aria-label={t("voiceSearch")} title={t("voiceSearch")}>
@@ -165,10 +162,18 @@ export default function AddSong({ onBack, onCreate }) {
                 </button>
               )}
               <button className="searchbtn" onClick={() => primarySearch()} disabled={busy || aiBusy || !q.trim()}>
-                {busy || aiBusy ? "…" : (openai ? t("aiSearchBtn") : t("search"))}
+                {busy ? "…" : t("search")}
               </button>
             </div>
-            <p className="searchtip">{openai ? t("aiSearchTip") : t("linkTip")}</p>
+            <p className="searchtip">{t("linkTip")}</p>
+            {openai && (
+              <>
+                <button className="aibtn" onClick={() => askAI()} disabled={aiBusy || busy || !q.trim()}>
+                  {aiBusy ? t("aiBusy") : t("ideasBtn")}
+                </button>
+                <p className="searchtip">{t("ideasTip")}</p>
+              </>
+            )}
 
             <div className="results">
               {aiMode && results.length > 0 && <p className="ailabel">{t("aiLabel")}</p>}
@@ -181,7 +186,7 @@ export default function AddSong({ onBack, onCreate }) {
                   <span className="pickarrow">＋</span>
                 </button>
               ))}
-              {searched && !busy && results.length === 0 && (
+              {searched && !busy && !aiBusy && results.length === 0 && (
                 <div className="noresults">{t("noMatches")}</div>
               )}
             </div>
@@ -199,7 +204,7 @@ export default function AddSong({ onBack, onCreate }) {
           <>
             <div className="addform">
               <div><label>{t("artist")}</label>
-                <input value={artist} placeholder="e.g. Daria ze Śląska" onChange={(e) => setArtist(e.target.value)} /></div>
+                <input value={artist} placeholder={t("artistPh")} onChange={(e) => setArtist(e.target.value)} /></div>
               <div><label>{t("album")} <span className="opt">{t("optional")}</span></label>
                 <input value={album} placeholder={t("album")} onChange={(e) => setAlbum(e.target.value)} /></div>
               <div><label>{t("title")}</label>

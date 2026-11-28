@@ -1,9 +1,14 @@
 import React, { useState } from "react";
 import { LANGS } from "../lib/util.js";
+import { CHARS_PER_SONG, trialLeft } from "../lib/translate.js";
 import { useT } from "../lib/i18nContext.js";
 
-// ---- Settings (your own DeepL key) -----------------------------------------
-export default function Settings({ profile, hasOwnKey, targetLang, onSave, onSaveTarget, onBack, missingAlbums, onBackfill, missingTitles, onBackfillTitles }) {
+const DEEPL_SIGNUP = "https://www.deepl.com/pro-api";
+
+// ---- Settings (translation language, allowance, your own DeepL key) ---------
+// `usage` is { hasKey, trial:{used,limit}, ai:{used,limit} } from the server
+// (null if not known yet). `onSave(key)` goes through /api/translate op:"setkey".
+export default function Settings({ usage, hasOwnKey, targetLang, onSave, onSaveTarget, onBack, missingAlbums, onBackfill, missingTitles, onBackfillTitles }) {
   const t = useT();
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
@@ -12,7 +17,8 @@ export default function Settings({ profile, hasOwnKey, targetLang, onSave, onSav
   const [bfMsg, setBfMsg] = useState("");
   const [btBusy, setBtBusy] = useState(false);
   const [btMsg, setBtMsg] = useState("");
-  const used = profile?.trial_used || 0;
+  const left = trialLeft(usage);
+  const fmt = (n) => { try { return n.toLocaleString(); } catch { return String(n); } };
   const save = async () => { if (!key.trim() || busy) return; setBusy(true); const ok = await onSave(key.trim()); setBusy(false); if (ok) setKey(""); };
   const remove = async () => { setBusy(true); await onSave(""); setBusy(false); };
   const runBackfill = async () => {
@@ -27,10 +33,11 @@ export default function Settings({ profile, hasOwnKey, targetLang, onSave, onSav
     const { total, filled } = await onBackfillTitles();
     setBtBusy(false); setBtMsg(t("titlesDone", { filled, total }));
   };
+  const ai = usage && usage.ai;
   return (
     <>
       <div className="rbar">
-        <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
+        <button className="icbtn" onClick={onBack} aria-label={t("back")}>←</button>
         <div className="ttl"><h2>{t("settings")}</h2><p>{t("settingsSub")}</p></div>
       </div>
       <div className="editor">
@@ -45,19 +52,31 @@ export default function Settings({ profile, hasOwnKey, targetLang, onSave, onSav
           <h3>{t("yourKey")}</h3>
           {hasOwnKey ? (
             <p className="setstate ok">{t("keySetOk")}</p>
+          ) : left != null ? (
+            <p className="setstate">{t("allowanceLeft", { songs: fmt(Math.floor(left / CHARS_PER_SONG)), chars: fmt(left) })}</p>
           ) : (
-            <p className="setstate">{t("onShared", { used })}</p>
+            <p className="setstate">{t("allowanceUnknown")}</p>
           )}
+          {ai && typeof ai.limit === "number" && (
+            <p className="setstate">{t("aiUsage", { used: fmt(ai.used || 0), limit: fmt(ai.limit) })}</p>
+          )}
+          <div className="keyexplain">
+            <h4>{t("deeplWhatH")}</h4>
+            <p>{t("deeplWhat")}</p>
+            <p>{t("deeplSteps")}</p>
+            <p className="keycard">{t("deeplCard")}</p>
+            <a className="findbtn" href={DEEPL_SIGNUP} target="_blank" rel="noreferrer">{t("getKeyFree")}</a>
+          </div>
           <div className="pwfield">
             <input type={showKey ? "text" : "password"} value={key} placeholder={hasOwnKey ? t("enterNewKey") : t("pasteApiKey")}
+              autoCapitalize="off" autoCorrect="off" spellCheck={false}
               onChange={(e) => setKey(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
             <button type="button" className="pweye" onClick={() => setShowKey((v) => !v)} aria-label={showKey ? t("hide") : t("show")}>{showKey ? t("hide") : t("show")}</button>
           </div>
           <div className="setbtns">
-            <button className="save" onClick={save} disabled={busy || !key.trim()}>{busy ? t("saving") : t("saveKey")}</button>
+            <button className="save" onClick={save} disabled={busy || !key.trim()}>{busy ? t("keyChecking") : t("saveKey")}</button>
             {hasOwnKey && <button className="cancel" onClick={remove} disabled={busy}>{t("remove")}</button>}
           </div>
-          <a className="findbtn" href="https://www.deepl.com/pro-api" target="_blank" rel="noreferrer">{t("getKey")}</a>
           <p className="hint2">{t("deeplHint")}</p>
         </div>
 
