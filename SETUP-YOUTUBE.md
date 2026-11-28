@@ -33,5 +33,6 @@ Then **redeploy** (or push any commit). The player appears on each song page.
 - The YouTube Data API free quota (10,000 units/day; a search costs 100) is far
   more than personal study needs.
 - If a song matches the wrong video, tell me the song and I'll tighten it.
-- The old Spotify lookup (`api/spotify.js`) is left in the repo but unused — its
-  embed only plays 30-second previews, which is why we moved to YouTube.
+- The Spotify embed (`api/spotify.js`) only plays 30-second previews for most
+  listeners, which is why YouTube is the default player. The Spotify keys are
+  still used for song search and for pasted Spotify links (`SETUP-SPOTIFY.md`).
