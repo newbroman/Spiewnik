@@ -29,6 +29,9 @@ const urlFor = (view, id) => (SONG_VIEWS.includes(view) && id ? `/?song=${encode
 // Auth redirects (OAuth / magic link / password recovery) put tokens in the URL;
 // leave those for supabase-js to read and clean up.
 const hasAuthParams = () => /(access_token|refresh_token|error_description|[?&]code=|type=recovery)/.test(window.location.hash + window.location.search);
+// ---- reader & learning ----
+import Review from "./views/Review.jsx";
+import Vocab from "./views/Vocab.jsx";
 
 export default function App() {
   const [session, setSession] = useState(undefined); // undefined = checking
@@ -462,6 +465,7 @@ export default function App() {
           songs={songs} loading={loading} email={session.user.email}
           recent={recentSongs} offline={offline}
           onOpen={openSong}
+          onReview={() => go("review")} onVocab={() => go("vocab")}
           onDelete={(id) => removeSong(id)}
           onAdd={() => { setAddPrefill(""); go("add"); }}
           onSettings={() => go("settings")}
@@ -501,6 +505,13 @@ export default function App() {
           onPractice={() => go("practice")} onFoundMedia={(patch) => { if (!offline) saveSong(patch); }} />
       )}
       {view === "practice" && cur && <Practice song={cur} onBack={() => back("reader")} />}
+      {/* ---- reader & learning ---- */}
+      {view === "review" && (
+        <Review songs={songs} onBack={() => back()} onOpenSong={(id) => go("reader", { id })} />
+      )}
+      {view === "vocab" && (
+        <Vocab songs={songs} onBack={() => back()} onOpenSong={(id) => go("reader", { id })} />
+      )}
       {view === "edit" && cur && (
         <Editor key={cur.id} song={cur} provider={provider} setProvider={setProvider}
           hasOwnKey={hasOwnKey} onSaveKey={saveDeeplKey} targetLang={targetLang}

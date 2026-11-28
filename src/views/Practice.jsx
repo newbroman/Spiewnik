@@ -3,6 +3,9 @@ import { SPLIT_RE, aiCapHit, langOf } from "../lib/util.js";
 import { apiHeaders } from "../supabase.js";
 import { blobToBase64, grade } from "../lib/practice.js";
 import { useT } from "../lib/i18nContext.js";
+import Cloze from "./Cloze.jsx";
+
+const PRAC_TAB_KEY = "spiewnik.practab.v1"; // speak | cloze
 
 // ---- Practice ---------------------------------------------------------------
 export default function Practice({ song, onBack }) {
@@ -14,6 +17,7 @@ export default function Practice({ song, onBack }) {
     const en = (song.en || "").split(SPLIT_RE);
     return pl.map((s, i) => ({ pl: s.trim(), en: (en[i] || "").trim() })).filter((l) => l.pl);
   }, [song.id]);
+  const [tab, setTabRaw] = useState(() => { try { return localStorage.getItem(PRAC_TAB_KEY) === "cloze" ? "cloze" : "speak"; } catch { return "speak"; } });
   const [idx, setIdx] = useState(0);
   const [heard, setHeard] = useState("");
   const [score, setScore] = useState(null);
@@ -51,10 +55,22 @@ export default function Practice({ song, onBack }) {
 
   useEffect(() => () => { stopAll(); try { window.speechSynthesis?.cancel(); } catch {} }, []);
 
+  const setTab = (v) => {
+    if (v === tab) return;
+    stopAll(); setCountdown(null); setListening(false); setReady(false); setRecording(false); setProcessing(false);
+    setTabRaw(v); try { localStorage.setItem(PRAC_TAB_KEY, v); } catch {}
+  };
+  const tabs = (
+    <div className="practabs" role="tablist" aria-label={tr("practice")}>
+      <button role="tab" aria-selected={tab === "speak"} className={tab === "speak" ? "on" : ""} onClick={() => setTab("speak")}>{tr("tabSpeak")}</button>
+      <button role="tab" aria-selected={tab === "cloze"} className={tab === "cloze" ? "on" : ""} onClick={() => setTab("cloze")}>{tr("tabCloze")}</button>
+    </div>
+  );
+
   if (!line) return (
     <>
       <div className="rbar">
-        <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
+        <button className="icbtn" onClick={onBack} aria-label={tr("ariaBack")}>←</button>
         <div className="ttl"><h2>{tr("practice")}</h2><p>{song.title}</p></div>
       </div>
       <div className="prac"><p className="pracnote">{tr("noPracticeYet")}</p></div>
@@ -207,15 +223,33 @@ export default function Practice({ song, onBack }) {
 
   const canSpeak = engine === "whisper" || (engine === "browser" && Rec);
 
+  if (tab === "cloze") return (
+    <>
+      <div className="rbar">
+        <button className="icbtn" onClick={onBack} aria-label={tr("ariaBack")}>←</button>
+        <div className="ttl"><h2>{tr("practice")}</h2><p>{song.title}</p></div>
+      </div>
+      {tabs}
+      <Cloze song={song} />
+    </>
+  );
+
   return (
     <>
       <div className="rbar">
-        <button className="icbtn" onClick={onBack} aria-label="Back">←</button>
+        <button className="icbtn" onClick={onBack} aria-label={tr("ariaBack")}>←</button>
         <div className="ttl"><h2>{tr("practice")}</h2><p>{song.title} · {idx + 1}/{lines.length}</p></div>
       </div>
+      {tabs}
       <div className="prac">
         <div className="pracline">
-          {score ? score.marks.map((m, i) => <span key={i} className={m.ok ? "wok" : "wno"}>{m.w}{" "}</span>) : line.pl}
+          {score ? score.marks.map((m, i) => (
+            m.type === "diacritic"
+              ? <span key={i} className="wdia" title={tr("pracHeardAs", { w: m.heard })}>{m.w}{" "}</span>
+              : m.type === "extra"
+                ? <span key={i} className="wextra" title={tr("pracLegendExtra")}>{m.w}{" "}</span>
+                : <span key={i} className={m.type === "exact" ? "wok" : "wno"}>{m.w}{" "}</span>
+          )) : line.pl}
         </div>
         {showEn && <div className="pracen">{line.en || "—"}</div>}
         <button className="pracen-toggle" onClick={() => setShowEn((v) => !v)}>{showEn ? tr("hideMeaning") : tr("showMeaning")}</button>
@@ -245,11 +279,19 @@ export default function Practice({ song, onBack }) {
         )}
         {heard && (
           <div className="pracfb">
-            <div className="pracpct" data-good={!!(score && score.pct >= 70)}>{score ? score.pct : 0}% match</div>
-            <div className="pracheard">You said: “{heard}”</div>
+            <div className="pracpct" data-good={!!(score && score.pct >= 70)}>{tr("pracMatch", { pct: score ? score.pct : 0 })}</div>
+            {score && (score.diacritic > 0 || score.missing > 0 || score.extra > 0) && (
+              <div className="praclegend">
+                {score.exact > 0 && <span className="wok">{tr("pracLegendOk", { n: score.exact })}</span>}
+                {score.diacritic > 0 && <span className="wdia">{tr("pracLegendDia", { n: score.diacritic })}</span>}
+                {score.missing > 0 && <span className="wno">{tr("pracLegendMiss", { n: score.missing })}</span>}
+                {score.extra > 0 && <span className="wextra">{tr("pracLegendExtra", { n: score.extra })}</span>}
+              </div>
+            )}
+            <div className="pracheard">{tr("pracYouSaid", { heard })}</div>
           </div>
         )}
-        {engine === "none" && <p className="pracnote">Speaking feedback needs Chrome or an Android phone. You can still tap Listen and read along.</p>}
+        {engine === "none" && <p className="pracnote">{tr("pracNoSpeech")}</p>}
         <div className="pracnav">
           <button className="navbtn" onClick={() => go(-1)} disabled={idx === 0}>{tr("prev")}</button>
           <button className="navbtn" onClick={() => go(1)} disabled={idx === lines.length - 1}>{tr("next")}</button>

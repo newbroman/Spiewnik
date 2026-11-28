@@ -34,8 +34,11 @@ function OverflowMenu({ items }) {
 }
 
 // `recent` = recently opened songs (most recent first). `offline` disables edits.
-export default function ListView({ songs, loading, email, recent = [], offline, onOpen, onDelete, onAdd, onSettings, onSignOut, onHelp, onFeedback, onShareList, onAddSample }) {
+import { StatsStrip, LearnLinks, useDueCount } from "./Stats.jsx";
+
+export default function ListView({ songs, loading, email, recent = [], offline, onOpen, onDelete, onAdd, onSettings, onSignOut, onHelp, onFeedback, onShareList, onAddSample, onReview, onVocab }) {
   const t = useT();
+  const due = useDueCount(songs);
   const [sampleBusy, setSampleBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(null); // song id awaiting delete confirmation
   const [selArtist, setSelArtist] = useState(null); // drilled-in artist: { language, key } or null
@@ -144,7 +147,10 @@ export default function ListView({ songs, loading, email, recent = [], offline, 
       </div>
       <div className="body">
         {offline && <div className="offlinebar" role="status">{t("offlineBanner")}</div>}
-        {/* LEARN_SLOT */}
+        {songs.length > 0 && !offline && (<>
+          <StatsStrip songs={songs} />
+          <LearnLinks dueCount={due} onReview={onReview} onVocab={onVocab} />
+        </>)}
         {!loading && !query.trim() && !curAr && cont && (
           <button className="contcard" onClick={() => onOpen(cont.id)}>
             <span className="contlbl">{t("continueH")}</span>
