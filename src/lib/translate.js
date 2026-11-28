@@ -41,8 +41,8 @@ export async function translateLines({ lines, source, target, provider, kind }) 
     const r = await post({ lines: batch, source, target, provider, ...(kind ? { kind } : {}) });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) {
-      const e = new Error((j && j.error) || "HTTP " + r.status);
-      e.status = r.status; e.partial = translations; e.usage = j && j.usage;
+      const e = new Error((j && (j.message || j.error)) || "HTTP " + r.status);
+      e.status = r.status; e.partial = translations; e.usage = j && (j.usage || (j.limit != null ? { used: j.used, limit: j.limit, ownKey: false } : undefined));
       throw e;
     }
     const tr = Array.isArray(j.translations) ? j.translations : [];
@@ -75,7 +75,7 @@ export async function setDeeplKey(key) {
     const r = await post({ op: "setkey", key: key || "" });
     const j = await r.json().catch(() => ({}));
     if (r.ok && j && j.ok) return { ok: true, hasKey: !!j.hasKey };
-    return { ok: false, error: (j && j.error) || "HTTP " + r.status };
+    return { ok: false, error: (j && (j.message || j.error)) || "HTTP " + r.status };
   } catch (e) { return { ok: false, error: e.message || "network" }; }
 }
 

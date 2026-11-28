@@ -460,7 +460,7 @@ export default function App() {
 
   return (
     <Shell lang={targetLang}>
-      {(view === "list" || (SONG_VIEWS.includes(view) && !cur && !loading)) && (
+      {(view === "list" || view === "demo" || (SONG_VIEWS.includes(view) && !cur && !loading)) && (
         <ListView
           songs={songs} loading={loading} email={session.user.email}
           recent={recentSongs} offline={offline}

@@ -230,7 +230,7 @@ export default function Reader({ song, targetLang, onBack, onEdit, onPractice, o
               <button className="stool" onClick={toggleAll} aria-pressed={allRevealed}>{allRevealed ? t("hideAll") : t("revealAll")}</button>
             )}
             <button className="stool" onClick={() => setPrinting(true)} aria-label={t("printSheetAria")}>⎙ {t("printSheet")}</button>
-            {illustOk && (
+            {illustOk && !song.demo && (
               <button className={"stool" + (emoji ? " on" : "")} onClick={illustrate} disabled={emojiBusy}>
                 {emojiBusy ? "…" : t("illustrate")}
               </button>

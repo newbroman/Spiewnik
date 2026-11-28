@@ -168,7 +168,7 @@ export async function fetchGloss({ word, line, language, target }, aiCapHit, tr)
   try {
     const r = await fetch("/api/ai?op=gloss", {
       method: "POST", headers: { "Content-Type": "application/json", ...apiHeaders() },
-      body: JSON.stringify({ op: "gloss", word, line, language, target }),
+      body: JSON.stringify({ op: "gloss", word: (word || "").slice(0, 40), line: (line || "").slice(0, 300), language, target }),
     });
     if (aiCapHit(r, tr)) return { ok: false, reason: "cap" };
     if (!r.ok) return { ok: false, reason: "error" };
