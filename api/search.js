@@ -12,12 +12,18 @@
 //
 //  GET /api/search?q=kaśka%20sochocka
 //    -> { results: [{ title, artist, album, year }] }
+//
+//  Merged results are kept in a small in-memory LRU (≈200 entries, 1 hour)
+//  keyed by the folded query. Responses are per authenticated request, so they
+//  are marked private / no-store rather than CDN-cacheable.
 // ============================================================================
 
 import { authorized, ALLOW_HEADERS } from "./_auth.js";
-
 // Accent/case-insensitive fold, so "Życie" and "Zycie" count as the same song.
-const fold = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+import { makeLru, fold } from "./_lru.js";
+
+const cache = makeLru(200);
+const TTL = 60 * 60 * 1000;
 
 let spToken = { token: null, exp: 0 };
 async function spotifyToken() {
@@ -87,10 +93,14 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", ALLOW_HEADERS);
   if (req.method === "OPTIONS") return res.status(204).end();
+  res.setHeader("Cache-Control", "private, no-store");
   if (!(await authorized(req))) return res.status(401).json({ error: "Unauthorized" });
 
-  const q = (req.query.q || "").toString().trim();
+  const q = (req.query.q || "").toString().trim().slice(0, 200);
   if (!q) return res.status(200).json({ results: [] });
+  const key = fold(q);
+  const hit = cache.get(key);
+  if (hit) return res.status(200).json({ results: hit });
 
   try {
     const [sp, it, dz] = await Promise.all([
@@ -109,7 +119,7 @@ export default async function handler(req, res) {
         return true;
       })
       .slice(0, 40);
-    res.setHeader("Cache-Control", "s-maxage=86400, stale-while-revalidate");
+    if (results.length) cache.set(key, results, TTL);
     return res.status(200).json({ results });
   } catch (e) {
     return res.status(502).json({ error: e.message || "Search failed." });

@@ -37,6 +37,7 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", ALLOW_HEADERS);
   if (req.method === "OPTIONS") return res.status(204).end();
+  res.setHeader("Cache-Control", "private, no-store");
 
   if (!(await authorized(req))) return res.status(401).json({ error: "Unauthorized" });
 
@@ -65,7 +66,6 @@ export default async function handler(req, res) {
     const key = (artist.split(/\s+/)[0] || "").toLowerCase();
     const pick = items.find((t) => (t.artists || []).some((a) => a.name.toLowerCase().includes(key))) || items[0];
 
-    res.setHeader("Cache-Control", "s-maxage=604800, stale-while-revalidate");
     return res.status(200).json({
       id: pick.id,
       name: pick.name,

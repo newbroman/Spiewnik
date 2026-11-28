@@ -1,43 +1,59 @@
 # Setup & deployment
 
-The app talks to its own `/api/musixmatch` function, and that function talks to
-Musixmatch. This keeps your API key on the server (never in the browser) and
-avoids the CORS block that stops the browser calling Musixmatch directly.
+Śpiewnik is a static Vite/React app plus serverless functions in `api/`, all on
+one Vercel project, with Supabase for accounts and data. The functions hold
+every secret; the browser only ever sees the Supabase publishable/anon key.
 
 ```
-App  ─►  /api/musixmatch (holds the key)  ─►  Musixmatch
+Browser ─► /api/* on Vercel (holds the keys) ─► OpenAI · DeepL/Google · lyrics.ovh
+   │                     │                         YouTube · Spotify · iTunes · Deezer
+   └────► Supabase ◄─────┘  (auth, songs, usage counters, your own DeepL key)
 ```
 
-## 1. Get a Musixmatch key
+## 1. Supabase
 
-1. Sign up at **developer.musixmatch.com**.
-2. Create an app to get your **API key**.
+1. Create a project at **supabase.com** (or use the existing one; its URL and
+   publishable key are the defaults in `src/supabase.js` and `api/_auth.js`).
+2. **Run the database migrations.** Open **SQL editor**, paste
+   `supabase/migrations/001_usage_and_entitlements.sql`, and run it. Then do the
+   same for each later file (`002_…`, `003_…`) in number order. They are
+   idempotent, so re-running one is harmless. Other changes may add more
+   numbered migrations; apply any new ones before deploying the code that needs them.
+3. If you use a different project from the default, note its URL and anon /
+   publishable key for step 2.
 
-Note: the free plan returns only about the first 30% of each lyric. Full lyrics
-require a paid, licensed plan — there's no self-serve price for it.
+Until migration 001 is applied, translation and the AI features answer
+`503 usage_unavailable`, because the server refuses to run the shared keys uncapped.
 
-## 2. Deploy to Vercel
+## 2. Vercel
 
-1. Push this repo to GitHub (already done if you're reading this there).
-2. At **vercel.com**, **Add New → Project** and import the repo. Vercel detects
-   Vite automatically — no build settings to change.
-3. Before (or just after) the first deploy, add an environment variable:
-   - **Settings → Environment Variables**
-   - Name: `MUSIXMATCH_API_KEY`
-   - Value: *your key from step 1*
-4. **Redeploy** so the variable takes effect.
+1. At **vercel.com**, **Add New → Project** and import the repo. Vercel detects
+   Vite automatically; there are no build settings to change.
+2. **Settings → Environment Variables** (Production and Preview):
 
-Your app is now live at `https://<project>.vercel.app`, and search works with no
-further configuration — the Settings tab can stay blank.
+   | Variable | Needed for | Guide |
+   | --- | --- | --- |
+   | `OPENAI_API_KEY` | lyric finder, link extraction, tidy, suggestions, emoji, gloss, transcription | platform.openai.com |
+   | `DEEPL_API_KEY` | translation (shared trial key) | `SETUP-TRANSLATE.md` |
+   | `GOOGLE_TRANSLATE_API_KEY` | optional: Google provider + fallback when DeepL hits its quota | `SETUP-TRANSLATE.md` |
+   | `TRANSLATE_PROVIDER` | optional: `deepl` (default) or `google` | |
+   | `YOUTUBE_API_KEY` | YouTube player, YouTube links | `SETUP-YOUTUBE.md` |
+   | `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` | song search, Spotify links, Spotify player | `SETUP-SPOTIFY.md` |
+   | `SUPABASE_URL`, `SUPABASE_ANON_KEY` | only if not using the default project | |
+   | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | only if not using the default project (client build) | |
 
-### Test the function directly
+   No Supabase service-role key is required.
+3. **Redeploy** so the variables take effect.
 
+### Check the functions
+
+```bash
+# Should print {"configured":true} once OPENAI_API_KEY is set:
+curl -s https://<project>.vercel.app/api/ai
 ```
-https://<project>.vercel.app/api/musixmatch?path=track.search&q=hello&page_size=3
-```
 
-You should see JSON. If you see `"MUSIXMATCH_API_KEY is not set"`, add the env
-var and redeploy.
+Every other endpoint needs a signed-in user's token (`Authorization: Bearer …`)
+and answers `401` without one.
 
 ## 3. Local development
 
@@ -46,29 +62,24 @@ npm install
 npm run dev
 ```
 
-The reader and sample lesson work offline. For live search locally, point dev at
-your deployed functions (simplest), then restart `npm run dev`:
+The UI, auth and database work locally against Supabase. For `/api/*`, either
+point the dev server at your deployed functions:
 
 ```bash
 echo 'VITE_PROXY_TARGET=https://<project>.vercel.app' >> .env
 ```
 
-(Running the functions fully locally instead needs the Vercel CLI: `npm i -g
-vercel`, put `MUSIXMATCH_API_KEY` in `.env`, then `vercel dev`.)
+or run the functions locally with the Vercel CLI (`npm i -g vercel`, put the
+server variables in `.env`, then `vercel dev`).
 
 ## Troubleshooting
 
-- **"MUSIXMATCH_API_KEY is not set on the server"** — add the env var in Vercel
-  and redeploy.
-- **Search fails in the Claude preview** — expected; there's no backend there.
-  Use the deployed app, or the sample lesson to try the reader.
-- **Lyrics look cut off** — that's the free plan's ~30% preview, not a bug.
-- **A line shows "translation not available"** — Musixmatch didn't return a
-  translation snippet for that line; the Polish still displays.
-
-## Alternatives to Musixmatch
-
-If the ~30% limit is too restrictive for personal study, a "paste your own
-lyrics" mode (no key, works offline) is a small change — the reader already
-takes a `{ lines: [{ pl, en }] }` shape. Open an issue or ask and it can be
-added.
+- **`503 usage_unavailable`**: migration 001 hasn't been applied, or Supabase is
+  unreachable. Run the migration (step 1.2).
+- **`402 trial_exhausted`**: the user has used this month's shared translation
+  allowance. They can add their own free DeepL key in Settings.
+- **`413 too_large`**: a single translate request exceeded 8,000 characters or
+  400 lines. The client should split it into chunks.
+- **`429 ai_limit`**: the user hit the monthly ceiling for the AI features.
+- **No lyrics found**: lyrics.ovh coverage is patchy for some languages, and the
+  web finder depends on search results. Paste a lyrics-page link or the text.
