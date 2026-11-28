@@ -4,78 +4,76 @@
 //  WHY THIS EXISTS
 //  ---------------
 //  The OpenAI features (voice transcription, song suggestions, emoji
-//  illustration, lyric tidy, lyric extraction, auto-find) all run on ONE
-//  shared key the operator pays for. Per-call costs are tiny (fractions of a
-//  cent), so this is NOT a quota people are meant to feel — it is an
-//  anti-abuse ceiling that stops a runaway loop or a malicious account from
-//  running up the bill. A normal user will never reach it.
+//  illustration, lyric tidy, lyric extraction, auto-find, word gloss) all run
+//  on ONE shared key the operator pays for. Per-call costs are tiny, so this is
+//  NOT a quota people are meant to feel — it is an anti-abuse ceiling that
+//  stops a runaway loop or a malicious account from running up the bill.
 //
-//  It mirrors the DeepL trial counter in translate.js: one integer per user,
-//  stamped with the calendar month, resets automatically when the month rolls
-//  over. Counts every OpenAI-backed call as 1 unit.
+//  HOW IT WORKS (server-owned)
+//  ---------------------------
+//  The counter lives in public.usage (kind = "ai", month = 'YYYY-MM' UTC),
+//  which users can read but not write. Before the work we read this month's
+//  total and refuse at AI_LIMIT; AFTER the OpenAI work succeeds the handler
+//  calls charge(), which runs public.consume_usage('ai', 1) with the user's
+//  own JWT. Failed calls never burn allowance.
 //
-//  Needs two columns on the `profiles` table:
-//    ai_used   int   not null default 0
-//    ai_month  text  not null default ''
+//  Concurrent requests can each pass the check before either is charged, so a
+//  user can overshoot the ceiling by a handful of calls. That's acceptable for
+//  an anti-abuse cap.
+//
+//  If the usage table can't be read (migration not applied, Supabase down) the
+//  gate fails CLOSED with 503, so the shared key is never left uncapped.
 // ============================================================================
 
-import { getUser, SUPABASE_URL, SUPABASE_ANON } from "./_auth.js";
+import { getUser, passphraseOk } from "./_auth.js";
+import { readUsage, consumeUsage, KIND_AI } from "./_supa.js";
 
 // Generous monthly ceiling per user. Raise/lower in one place.
 export const AI_LIMIT = 500;
 
-const curMonth = () => new Date().toISOString().slice(0, 7); // "2026-11"
-
-async function getAiProfile(user) {
-  try {
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}&select=ai_used,ai_month`,
-      { headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${user.token}` } });
-    if (!r.ok) return null;
-    const a = await r.json();
-    return a[0] || null;
-  } catch { return null; }
-}
-
-// AI calls this user has made in the CURRENT month (0 after a month rolls over).
-const usedThisMonth = (prof) => (prof && prof.ai_month === curMonth() ? (prof.ai_used || 0) : 0);
-
-async function bumpAi(user, n) {
-  try {
-    await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
-      method: "POST",
-      headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${user.token}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
-      body: JSON.stringify([{ id: user.id, ai_used: n, ai_month: curMonth(), updated_at: new Date().toISOString() }]),
-    });
-  } catch { /* best effort */ }
+// Current AI usage for a signed-in user (for the usage op in translate.js).
+export async function aiUsage(user) {
+  const u = await readUsage(user, KIND_AI);
+  return { used: u[KIND_AI], limit: AI_LIMIT };
 }
 
 // ----------------------------------------------------------------------------
-//  Gate an OpenAI-backed request. Call this at the top of each OpenAI proxy,
-//  in place of a plain authorized(req) check.
+//  Gate an OpenAI-backed request.
 //
 //  Returns one of:
-//    { status: 401 }                      — not signed in (and no passphrase)
-//    { status: 429, limit }               — monthly ceiling reached
-//    { ok: true, charge }                 — allowed; call charge() on success
+//    { status: 401 }                       — not signed in (and no passphrase)
+//    { status: 429, limit, used }          — monthly ceiling reached
+//    { status: 503 }                       — usage store unavailable
+//    { ok: true, charge, used, limit }     — allowed; call charge() on success
 //
-//  The legacy passphrase (single-user mode) is uncapped: it returns
-//  { ok: true, charge: noop }.
+//  The legacy passphrase (single-user mode) is uncapped: charge is a no-op.
 // ----------------------------------------------------------------------------
 export async function gateAI(req) {
-  const PASS = process.env.APP_PASSPHRASE;
-  if (PASS && req.headers["x-spiewnik-pass"] === PASS) {
-    return { ok: true, charge: async () => {} };
+  if (passphraseOk(req)) {
+    return { ok: true, charge: async () => null, used: null, limit: null };
   }
 
   const user = await getUser(req);
   if (!user) return { status: 401 };
 
-  const prof = await getAiProfile(user);
-  const used = usedThisMonth(prof);
-  if (used >= AI_LIMIT) return { status: 429, limit: AI_LIMIT };
+  let used;
+  try {
+    used = (await readUsage(user, KIND_AI))[KIND_AI];
+  } catch (e) {
+    console.log("gateAI: usage read failed", e && e.message);
+    return { status: 503 };
+  }
+  if (used >= AI_LIMIT) return { status: 429, limit: AI_LIMIT, used };
 
-  // charge() is called only after the OpenAI work succeeds, so failed calls
-  // (bad page, timeout, no lyric found) don't burn the user's allowance.
-  const charge = async () => { await bumpAi(user, used + 1); };
-  return { ok: true, charge };
+  // Call ONLY after the OpenAI work has succeeded. Best effort: a failed
+  // charge is logged, never turned into an error for a request that worked.
+  const charge = async () => {
+    try {
+      return await consumeUsage(user, KIND_AI, 1);
+    } catch (e) {
+      console.log("gateAI: charge failed", e && e.message);
+      return null;
+    }
+  };
+  return { ok: true, charge, used, limit: AI_LIMIT, user };
 }
